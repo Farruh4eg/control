@@ -156,7 +156,7 @@ func (sc *ScreenCapture) start() error {
 		args = append(args,
 			"-preset", "ultrafast",
 			"-tune", "zerolatency",
-			"-b:v", "2M", "-maxrate", "3M", "-bufsize", "4M",
+			"-b:v", "3M", "-maxrate", "4M", "-bufsize", "6M",
 		)
 	}
 

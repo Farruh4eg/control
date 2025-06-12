@@ -58,11 +58,24 @@ func main() {
 		passwordEntryWidget := widget.NewPasswordEntry()
 		passwordEntryWidget.SetPlaceHolder("Leave empty for no password")
 
+		allowMouseControlCheck := widget.NewCheck("Allow Mouse Control", nil)
+		allowMouseControlCheck.SetChecked(true)
+		allowKeyboardControlCheck := widget.NewCheck("Allow Keyboard Control", nil)
+		allowKeyboardControlCheck.SetChecked(true)
+		allowFileSystemAccessCheck := widget.NewCheck("Allow File System Access", nil)
+		allowFileSystemAccessCheck.SetChecked(true)
+		allowTerminalAccessCheck := widget.NewCheck("Allow Terminal Access", nil)
+		allowTerminalAccessCheck.SetChecked(true)
+
 		serverRelaxedAuthCheck := widget.NewCheck("Enable Relaxed Local Authentication (for server)", nil)
-		serverRelaxedAuthCheck.SetChecked(false) // Default to false
+		serverRelaxedAuthCheck.SetChecked(false)
 
 		formItems := []*widget.FormItem{
 			{Text: "Session Password", Widget: passwordEntryWidget, HintText: "Enter a password for this session."},
+			{Text: "Mouse Control", Widget: allowMouseControlCheck},
+			{Text: "Keyboard Control", Widget: allowKeyboardControlCheck},
+			{Text: "File System Access", Widget: allowFileSystemAccessCheck},
+			{Text: "Terminal Access", Widget: allowTerminalAccessCheck},
 			{Text: "Advanced", Widget: serverRelaxedAuthCheck, HintText: "Allows clients on local network to connect more easily if they skip server certificate validation."},
 		}
 
@@ -74,6 +87,11 @@ func main() {
 
 			plainPassword := passwordEntryWidget.Text
 			hashedPassword := ""
+
+			allowMouse := allowMouseControlCheck.Checked
+			allowKeyboard := allowKeyboardControlCheck.Checked
+			allowFS := allowFileSystemAccessCheck.Checked
+			allowTerminal := allowTerminalAccessCheck.Checked
 			enableServerRelaxedAuth := serverRelaxedAuthCheck.Checked
 
 			if plainPassword == "" {
@@ -89,8 +107,10 @@ func main() {
 				hashedPassword = string(hashBytes)
 				log.Println("INFO: Password hashed successfully.")
 			}
-			log.Printf("INFO: Server will launch with Relaxed Local Auth: %t", enableServerRelaxedAuth)
-			launchServerProcess(mainWindow, fyneApp, relayServerEntry.Text, hashedPassword, enableServerRelaxedAuth)
+			log.Printf("INFO: Server will launch with Relaxed Local Auth: %t, Mouse: %t, Keyboard: %t, FS: %t, Terminal: %t",
+				enableServerRelaxedAuth, allowMouse, allowKeyboard, allowFS, allowTerminal)
+			launchServerProcess(mainWindow, fyneApp, relayServerEntry.Text, hashedPassword, enableServerRelaxedAuth,
+				allowMouse, allowKeyboard, allowFS, allowTerminal)
 		}, mainWindow)
 		passwordDialog.Resize(fyne.NewSize(950, 300))
 		passwordDialog.Show()
@@ -117,7 +137,8 @@ func main() {
 	mainWindow.ShowAndRun()
 }
 
-func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, hashedPassword string, enableRelaxedAuth bool) {
+func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, hashedPassword string, enableRelaxedAuth bool,
+	allowMouse, allowKeyboard, allowFS, allowTerminal bool) {
 	serverPath, err := getExecutablePath(serverAppName)
 	if err != nil {
 		log.Printf("ERROR: Could not determine path for server: %v", err)
@@ -136,6 +157,10 @@ func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, 
 	if enableRelaxedAuth {
 		args = append(args, "-localRelaxedAuth=true")
 	}
+	args = append(args, fmt.Sprintf("-allowMouseControl=%t", allowMouse))
+	args = append(args, fmt.Sprintf("-allowKeyboardControl=%t", allowKeyboard))
+	args = append(args, fmt.Sprintf("-allowFileSystemAccess=%t", allowFS))
+	args = append(args, fmt.Sprintf("-allowTerminalAccess=%t", allowTerminal))
 
 	cmd := exec.Command(serverPath, args...)
 	log.Printf("INFO: Launching server with args: %v", args)
@@ -159,12 +184,12 @@ func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, 
 		dialog.ShowError(fmt.Errorf("Failed to launch server: %v", err), parentWindow)
 		return
 	}
-	log.Printf("INFO: Server '%s' launched (PID: %d). Relay: %s. Password protection: %t. Relaxed Auth: %t. Waiting for Host ID...",
-		serverPath, cmd.Process.Pid, currentRelayAddr, hashedPassword != "", enableRelaxedAuth)
+	log.Printf("INFO: Server '%s' launched (PID: %d). Relay: %s. Password protection: %t. Relaxed Auth: %t. Mouse: %t, Keyboard: %t, FS: %t, Terminal: %t. Waiting for Host ID...",
+		serverPath, cmd.Process.Pid, currentRelayAddr, hashedPassword != "", enableRelaxedAuth, allowMouse, allowKeyboard, allowFS, allowTerminal)
 
 	initialDialog := dialog.NewInformation("Host Mode",
-		fmt.Sprintf("Server '%s' launched.\nRelay: %s\nPassword Protected: %t\nRelaxed Local Auth: %t\nWaiting for Host ID...",
-			serverAppName, currentRelayAddr, hashedPassword != "", enableRelaxedAuth), parentWindow)
+		fmt.Sprintf("Server '%s' launched.\nRelay: %s\nPassword Protected: %t\nRelaxed Local Auth: %t\nMouse: %t, Keyboard: %t, FS: %t, Terminal: %t\nWaiting for Host ID...",
+			serverAppName, currentRelayAddr, hashedPassword != "", enableRelaxedAuth, allowMouse, allowKeyboard, allowFS, allowTerminal), parentWindow)
 	initialDialog.Show()
 
 	go func() {
@@ -190,6 +215,9 @@ func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, 
 				passwordLabel := widget.NewLabel(passwordMsg)
 				relaxedAuthMsg := fmt.Sprintf("Relaxed Local Auth: %t", enableRelaxedAuth)
 				relaxedAuthLabel := widget.NewLabel(relaxedAuthMsg)
+				permissionsMsg := fmt.Sprintf("Permissions: Mouse: %t, Keyboard: %t, FS: %t, Terminal: %t",
+					allowMouse, allowKeyboard, allowFS, allowTerminal)
+				permissionsLabel := widget.NewLabel(permissionsMsg)
 
 				copyButton := widget.NewButton("Copy ID", func() {
 					parentWindow.Clipboard().SetContent(hostID)
@@ -200,6 +228,7 @@ func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, 
 					idLabel,
 					passwordLabel,
 					relaxedAuthLabel,
+					permissionsLabel,
 					copyButton,
 				)
 				content.Resize(fyne.NewSize(600, 600))

@@ -86,6 +86,10 @@ func (mo *mouseOverlay) scaleCoordinates(pos fyne.Position) (float32, float32) {
 }
 
 func (mo *mouseOverlay) sendMouseEvent(eventType, btn string, pos fyne.Position) {
+	if !canControlMouse {
+		log.Printf("Mouse event type '%s' (button: '%s') dropped due to host permissions.", eventType, btn)
+		return
+	}
 	sx, sy := mo.scaleCoordinates(pos)
 	req := &pb.FeedRequest{
 		Message:        "mouse_event",

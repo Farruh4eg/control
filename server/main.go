@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	pb "control_grpc/gen/proto" // Make sure this path is correct for your project
+	pb "control_grpc/gen/proto"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -44,27 +44,40 @@ type server struct {
 	pb.UnimplementedRemoteControlServiceServer
 	pb.UnimplementedFileTransferServiceServer
 	pb.UnimplementedTerminalServiceServer
+	pb.UnimplementedSessionServiceServer
 
-	localGrpcAddr       string
-	sessionPasswordHash string
-	currentRelayHostID  string
-	grpcServer          *grpc.Server
+	localGrpcAddr         string
+	sessionPasswordHash   string
+	currentRelayHostID    string
+	grpcServer            *grpc.Server
+	allowMouseControl     bool
+	allowKeyboardControl  bool
+	allowFileSystemAccess bool
+	allowTerminalAccess   bool
 }
 
 var (
-	portFlag             = flag.Int("port", 32212, "The server port for direct gRPC connections")
-	enableRelay          = flag.Bool("relay", false, "Enable relay mode to connect through a relay server")
-	relayServerAddr      = flag.String("relayServer", "localhost:34000", "Address of the relay server's control port (IP:PORT)")
-	hostIDFlag           = flag.String("hostID", "auto", "Unique ID for this host. 'auto' for random generation.")
-	sessionPasswordFlag  = flag.String("sessionPassword", "", "HASHED password to protect this host session when using relay (optional).")
-	localRelaxedAuthFlag = flag.Bool("localRelaxedAuth", false, "Enable relaxed client certificate authentication for direct local connections.")
+	portFlag                  = flag.Int("port", 32212, "The server port for direct gRPC connections")
+	allowMouseControlFlag     = flag.Bool("allowMouseControl", true, "Allow client to control mouse")
+	allowKeyboardControlFlag  = flag.Bool("allowKeyboardControl", true, "Allow client to control keyboard")
+	allowFileSystemAccessFlag = flag.Bool("allowFileSystemAccess", true, "Allow client to access file system")
+	allowTerminalAccessFlag   = flag.Bool("allowTerminalAccess", true, "Allow client to access terminal")
+	enableRelay               = flag.Bool("relay", false, "Enable relay mode to connect through a relay server")
+	relayServerAddr           = flag.String("relayServer", "localhost:34000", "Address of the relay server's control port (IP:PORT)")
+	hostIDFlag                = flag.String("hostID", "auto", "Unique ID for this host. 'auto' for random generation.")
+	sessionPasswordFlag       = flag.String("sessionPassword", "", "HASHED password to protect this host session when using relay (optional).")
+	localRelaxedAuthFlag      = flag.Bool("localRelaxedAuth", false, "Enable relaxed client certificate authentication for direct local connections.")
 
-	fyneApp             fyne.App
-	fyneWindow          fyne.Window
-	serverStatusLabel   *widget.Label
-	relayStatusLabel    *widget.Label
-	hostIDDisplayLabel  *widget.Label
-	passwordStatusLabel *widget.Label
+	fyneApp                   fyne.App
+	fyneWindow                fyne.Window
+	serverStatusLabel         *widget.Label
+	relayStatusLabel          *widget.Label
+	hostIDDisplayLabel        *widget.Label
+	passwordStatusLabel       *widget.Label
+	mousePermissionLabel      *widget.Label
+	keyboardPermissionLabel   *widget.Label
+	fileSystemPermissionLabel *widget.Label
+	terminalPermissionLabel   *widget.Label
 )
 
 const effectiveHostIDPrefix = "EFFECTIVE_HOST_ID:"
@@ -178,13 +191,22 @@ func main() {
 	}
 
 	s := &server{
-		sessionPasswordHash: *sessionPasswordFlag,
+		sessionPasswordHash:   *sessionPasswordFlag,
+		allowMouseControl:     *allowMouseControlFlag,
+		allowKeyboardControl:  *allowKeyboardControlFlag,
+		allowFileSystemAccess: *allowFileSystemAccessFlag,
+		allowTerminalAccess:   *allowTerminalAccessFlag,
 	}
 	if s.sessionPasswordHash != "" {
 		log.Printf("INFO: Session password protection is ENABLED.")
 	} else {
 		log.Printf("INFO: Session password protection is DISABLED.")
 	}
+
+	log.Printf("INFO: Permission - Mouse Control: %t", s.allowMouseControl)
+	log.Printf("INFO: Permission - Keyboard Control: %t", s.allowKeyboardControl)
+	log.Printf("INFO: Permission - File System Access: %t", s.allowFileSystemAccess)
+	log.Printf("INFO: Permission - Terminal Access: %t", s.allowTerminalAccess)
 
 	if *localRelaxedAuthFlag {
 		log.Printf("INFO: Relaxed local client authentication is ENABLED.")
@@ -224,6 +246,7 @@ func main() {
 		grpc.MaxSendMsgSize(1024 * 1024 * 10),
 		grpc.MaxRecvMsgSize(1024 * 1024 * 10),
 	}
+	log.Println("WARN: TLS is temporarily disabled for server for compilation purposes.")
 
 	grpcServer := grpc.NewServer(opts...)
 	s.grpcServer = grpcServer
@@ -232,6 +255,7 @@ func main() {
 	pb.RegisterRemoteControlServiceServer(grpcServer, s)
 	pb.RegisterFileTransferServiceServer(grpcServer, s)
 	pb.RegisterTerminalServiceServer(grpcServer, s)
+	pb.RegisterSessionServiceServer(grpcServer, s)
 	reflection.Register(grpcServer)
 
 	fyneApp = app.NewWithID("com.example.grpcserver.v2")
@@ -257,6 +281,15 @@ func main() {
 	}
 	relaxedAuthStatusLabel := widget.NewLabel(relaxedAuthStatusText)
 	relaxedAuthStatusLabel.Alignment = fyne.TextAlignCenter
+
+	mousePermissionLabel = widget.NewLabel(fmt.Sprintf("Mouse Control: %t", s.allowMouseControl))
+	mousePermissionLabel.Alignment = fyne.TextAlignCenter
+	keyboardPermissionLabel = widget.NewLabel(fmt.Sprintf("Keyboard Control: %t", s.allowKeyboardControl))
+	keyboardPermissionLabel.Alignment = fyne.TextAlignCenter
+	fileSystemPermissionLabel = widget.NewLabel(fmt.Sprintf("File System Access: %t", s.allowFileSystemAccess))
+	fileSystemPermissionLabel.Alignment = fyne.TextAlignCenter
+	terminalPermissionLabel = widget.NewLabel(fmt.Sprintf("Terminal Access: %t", s.allowTerminalAccess))
+	terminalPermissionLabel.Alignment = fyne.TextAlignCenter
 
 	if *enableRelay {
 		hostIDDisplayLabel.SetText("Registering with Relay server...")
@@ -297,10 +330,13 @@ func main() {
 		serverStatusLabel,
 		relayStatusLabel,
 		relaxedAuthStatusLabel,
+		mousePermissionLabel,
+		keyboardPermissionLabel,
+		fileSystemPermissionLabel,
+		terminalPermissionLabel,
 		quitButton,
 	))
-	fyneWindow.Resize(fyne.NewSize(500, 310))
-
+	fyneWindow.Resize(fyne.NewSize(500, 380))
 	fyneWindow.SetOnClosed(func() {
 		log.Println("INFO: Fyne window closed by user.")
 		tryGracefulShutdown(s, shutdownTimeout)
@@ -606,6 +642,19 @@ func loadTLSCredentialsFromEmbed(relaxedAuthEnabled bool) (credentials.Transport
 
 func (s *server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error) {
 	return &pb.PingResponse{ClientTimestampNano: req.GetClientTimestampNano()}, nil
+}
+
+func (s *server) GetSessionInfo(ctx context.Context, req *pb.GetSessionInfoRequest) (*pb.SessionInfoResponse, error) {
+	log.Printf("INFO: GetSessionInfo called by client. Serving permissions: Mouse=%t, Keyboard=%t, FS=%t, Terminal=%t",
+		s.allowMouseControl, s.allowKeyboardControl, s.allowFileSystemAccess, s.allowTerminalAccess)
+	return &pb.SessionInfoResponse{
+		Permissions: &pb.SessionPermissions{
+			AllowMouseControl:     s.allowMouseControl,
+			AllowKeyboardControl:  s.allowKeyboardControl,
+			AllowFileSystemAccess: s.allowFileSystemAccess,
+			AllowTerminalAccess:   s.allowTerminalAccess,
+		},
+	}, nil
 }
 
 func isNetworkCloseError(err error) bool {

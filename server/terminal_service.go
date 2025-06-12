@@ -41,7 +41,6 @@ func extractFileToPath(outputPath string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// ensureWinptyBinariesAreExtracted extracts the embedded winpty.dll and winpty-agent.exe
 func ensureWinptyBinariesAreExtracted() error {
 	winptyInitOnce.Do(func() {
 		log.Println("INFO: Performing one-time extraction check for WinPTY binaries...")
@@ -58,7 +57,6 @@ func ensureWinptyBinariesAreExtracted() error {
 
 		if len(winptyDllEmbed) == 0 {
 			log.Println("WARN: Embedded winpty.dll data is empty. Cannot extract.")
-			// Optionally set winptyInitErr here if this is critical
 		} else {
 			if err := extractFileToPath(dllPath, winptyDllEmbed, 0644); err != nil {
 				winptyInitErr = fmt.Errorf("failed to extract winpty.dll: %w", err)
@@ -68,13 +66,13 @@ func ensureWinptyBinariesAreExtracted() error {
 
 		if len(winptyAgentEmbed) == 0 {
 			log.Println("WARN: Embedded winpty-agent.exe data is empty. Cannot extract.")
-			// Optionally set winptyInitErr here
 		} else {
 			if err := extractFileToPath(agentPath, winptyAgentEmbed, 0755); err != nil {
 				winptyInitErr = fmt.Errorf("failed to extract winpty-agent.exe: %w", err)
 				return
 			}
 		}
+		log.Println("WARN: winpty-agent.exe embedding and extraction is temporarily disabled.")
 		if winptyInitErr == nil {
 			log.Println("INFO: WinPTY binaries successfully checked/extracted.")
 		}
@@ -88,7 +86,6 @@ func stripANSI(str string) string {
 	return ansiEscapePattern.ReplaceAllString(str, "")
 }
 
-// CommandStream handles bidirectional terminal commands and output using WinPTY.
 func (s *server) CommandStream(stream pb.TerminalService_CommandStreamServer) error {
 	log.Println("TerminalService (WinPTY): Client connected to CommandStream.")
 
@@ -286,7 +283,7 @@ func (s *server) CommandStream(stream pb.TerminalService_CommandStreamServer) er
 				OutputLine:   fmt.Sprintf("--- Error writing to PTY: %v ---", writeErr),
 				CommandEnded: true,
 			})
-			ptyReadWg.Wait() // Wait for reader to finish
+			ptyReadWg.Wait()
 			return status.Errorf(codes.Internal, "failed to write to PTY stdin: %v", writeErr)
 		}
 	}

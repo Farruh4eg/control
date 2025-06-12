@@ -170,6 +170,7 @@ func handleInputEvents(inputEvents chan *pb.FeedRequest, scaleX, scaleY float32)
 			}
 
 		case "keyboard_event":
+			log.Printf("DEBUG: [handleInputEvents] Entered keyboard_event processing block. Type: '%s', KeyName: '%s', KeyChar: '%s'", reqMsg.GetKeyboardEventType(), reqMsg.GetKeyName(), reqMsg.GetKeyCharStr())
 			kbEventType := reqMsg.GetKeyboardEventType()
 			fyneKeyName := reqMsg.GetKeyName()
 			keyChar := reqMsg.GetKeyCharStr()
@@ -218,8 +219,7 @@ func handleInputEvents(inputEvents chan *pb.FeedRequest, scaleX, scaleY float32)
 							log.Printf("Action: Modifier '%s' released", robotgoKeyName)
 							robotgo.KeyToggle(robotgoKeyName, "up")
 						} else {
-							// Non-modifier keyup events are generally ignored because KeyTap handles press & release.
-							// Logging it for now to observe behavior.
+
 							log.Printf("Action: Ignoring non-modifier keyup for '%s' (handled by KeyTap on keydown)", robotgoKeyName)
 						}
 					} else {
@@ -250,6 +250,12 @@ func receiveInputEvents(stream pb.RemoteControlService_GetFeedServer, inputEvent
 
 	for {
 		reqMsg, err := stream.Recv()
+		// [[[cog
+		// import cog
+		// cog.outl("log.Printf(\"DEBUG: [receiveInputEvents] Raw event received from client: MessageType='%s', KeyboardEventType='%s', MouseEventType='%s'\", reqMsg.GetMessage(), reqMsg.GetKeyboardEventType(), reqMsg.GetMouseEventType())")
+		// ]]]
+		log.Printf("DEBUG: [receiveInputEvents] Raw event received from client: MessageType='%s', KeyboardEventType='%s', MouseEventType='%s'", reqMsg.GetMessage(), reqMsg.GetKeyboardEventType(), reqMsg.GetMouseEventType())
+		// [[[end]]]
 		if err != nil {
 			if err == io.EOF {
 				log.Println("Client closed the stream (EOF in receiveInputEvents).")

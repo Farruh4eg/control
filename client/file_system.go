@@ -380,11 +380,12 @@ func performDownload(theApp fyne.App, remotePath string, localFilePath string, w
 
 	if streamErr != nil {
 		log.Printf("Error initiating download stream for '%s': %v", remotePath, streamErr)
-		dlWindow.Hide()
 		parentDialogWindow := mainWindow
 		if status.Code(streamErr) == codes.Canceled {
 			log.Printf("Download of '%s' was cancelled by user before stream start.", remotePath)
+			dlWindow.Hide()
 		} else {
+			dlWindow.Hide()
 			showDownloadError("Failed to start download", streamErr, parentDialogWindow)
 		}
 		return
@@ -407,7 +408,7 @@ func performDownload(theApp fyne.App, remotePath string, localFilePath string, w
 			parentDialogWindow := mainWindow
 			if err == io.EOF {
 				log.Printf("Download of '%s' finished successfully. Total bytes: %d", remotePath, totalBytesReceived)
-
+				dlWindow.Hide()
 				if parentDialogWindow != nil {
 					dialog.ShowInformation("Download Complete",
 						fmt.Sprintf("Downloaded %s successfully to %s\n(%s received)",
@@ -423,6 +424,7 @@ func performDownload(theApp fyne.App, remotePath string, localFilePath string, w
 				if status.Code(err) == codes.Canceled || ctx.Err() == context.Canceled {
 					log.Printf("Download of '%s' was cancelled during streaming.", remotePath)
 				} else {
+					dlWindow.Hide()
 					showDownloadError(fmt.Sprintf("Failed during download of %s", filepath.Base(localFilePath)), err, parentDialogWindow)
 				}
 			}
@@ -449,6 +451,7 @@ func performDownload(theApp fyne.App, remotePath string, localFilePath string, w
 		if writeErr != nil {
 			log.Printf("Error writing chunk to local file '%s': %v", localFilePath, writeErr)
 			parentDialogWindow := mainWindow
+			dlWindow.Hide() // Hide before showing dialog
 			showDownloadError(fmt.Sprintf("Error writing %s to disk", filepath.Base(localFilePath)), writeErr, parentDialogWindow)
 			return
 		}

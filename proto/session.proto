@@ -3,6 +3,23 @@ syntax = "proto3";
 package control_grpc;
 option go_package = "control_grpc/proto";
 
+message SessionPermissions {
+  bool allow_mouse_control = 1;
+  bool allow_keyboard_control = 2;
+  bool allow_file_system_access = 3;
+  bool allow_terminal_access = 4;
+}
+
+message GetSessionInfoRequest {
+
+}
+
+message SessionInfoResponse {
+  SessionPermissions permissions = 1;
+  // string session_id = 2;
+  // string host_version = 3;
+}
+
 service SessionService {
-  
+  rpc GetSessionInfo (GetSessionInfoRequest) returns (SessionInfoResponse);
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+
 	"crypto/x509"
 	_ "embed"
 	"errors"
@@ -46,6 +47,12 @@ var clientKeyEmbed []byte
 var serverCACertEmbed []byte
 
 var (
+	canControlMouse     bool = true
+	canControlKeyboard  bool = true
+	canAccessFileSystem bool = true
+	canAccessTerminal   bool = true
+	permissionsFetched  bool = false
+
 	inputEvents         = make(chan *pb.FeedRequest, 120)
 	pingLabel           *widget.Label
 	fpsLabel            *widget.Label
@@ -121,7 +128,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("FATAL: Error parsing flags: %v", err)
 	}
-	allowLocalInsecure := *allowLocalInsecureOpt // Dereference once after parsing
+	allowLocalInsecure := *allowLocalInsecureOpt
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
@@ -140,7 +147,6 @@ func main() {
 	log.Printf("INFO: Client attempting to connect. Type: '%s', Address: '%s', AllowLocalInsecure: %t", *connectionType, *serverAddrActual, allowLocalInsecure)
 
 	if *connectionType == "direct" {
-		// Initial attempt with standard TLS
 		log.Println("INFO: Attempting secure direct connection...")
 		log.Println("INFO: Attempting secure direct connection (with blocking dial)...")
 		tlsCreds, err := loadTLSCredentialsFromEmbed(*serverAddrActual, false)
@@ -269,7 +275,25 @@ func main() {
 	InitializeSharedGlobals(currentFyneApp, mainAppWindow, localFilesClient)
 	log.Println("INFO: Shared globals (AppInstance, mainWindow, filesClient) initialized.")
 
-	if remoteControlClient == nil || localFilesClient == nil || terminalClient == nil {
+	sessionClient := pb.NewSessionServiceClient(conn)
+	sessionCtx, sessionCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer sessionCancel()
+	sessionInfo, errSession := sessionClient.GetSessionInfo(sessionCtx, &pb.GetSessionInfoRequest{})
+	if errSession != nil {
+		log.Printf("WARN: Could not get session info from server: %v. Using default permissions.", errSession)
+		dialog.ShowInformation("Warning: Permissions", "Could not retrieve session permissions from the server. Using default permissions, some features might be unexpectedly disabled or enabled.", mainAppWindow)
+	} else if sessionInfo != nil && sessionInfo.Permissions != nil {
+		canControlMouse = sessionInfo.Permissions.AllowMouseControl
+		canControlKeyboard = sessionInfo.Permissions.AllowKeyboardControl
+		canAccessFileSystem = sessionInfo.Permissions.AllowFileSystemAccess
+		canAccessTerminal = sessionInfo.Permissions.AllowTerminalAccess
+		permissionsFetched = true
+		log.Printf("INFO: Session permissions received: Mouse:%t, Keyboard:%t, FS:%t, Terminal:%t", canControlMouse, canControlKeyboard, canAccessFileSystem, canAccessTerminal)
+	} else {
+		log.Printf("WARN: Session info response or permissions were nil. Using default permissions.")
+	}
+
+	if remoteControlClient == nil || localFilesClient == nil || terminalClient == nil || sessionClient == nil {
 		log.Fatalf("ERROR: Failed to create one or more gRPC clients!")
 	}
 
@@ -305,8 +329,22 @@ func main() {
 	}()
 
 	if mainAppWindow != nil && mainAppWindow.Canvas() != nil {
-		mainAppWindow.Canvas().SetOnTypedRune(func(r rune) { sendKeyboardEvent("keychar", "", string(r)) })
-		mainAppWindow.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) { sendKeyboardEvent("keydown", string(ev.Name), "") })
+		mainAppWindow.Canvas().SetOnTypedRune(func(r rune) {
+			if !canControlKeyboard {
+				log.Println("Keyboard rune event dropped due to host permissions.")
+				return
+			}
+			log.Printf("DEBUG: [Client] Keyboard permission active. Attempting to send keychar event: Char='%s'", string(r))
+			sendKeyboardEvent("keychar", "", string(r))
+		})
+		mainAppWindow.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
+			if !canControlKeyboard {
+				log.Println("Keyboard key event dropped due to host permissions.")
+				return
+			}
+			log.Printf("DEBUG: [Client] Keyboard permission active. Attempting to send keydown event: KeyName='%s'", string(ev.Name))
+			sendKeyboardEvent("keydown", string(ev.Name), "")
+		})
 	} else {
 		log.Println("Error: mainAppWindow or its canvas is nil, cannot set keyboard handlers.")
 	}
@@ -348,6 +386,11 @@ func main() {
 	treeContainer := container.NewScroll(fileTree)
 
 	getFSButton := widget.NewButton("Files", func() {
+		if !canAccessFileSystem {
+			log.Println("INFO: User clicked 'Files' button, but access is denied by host.")
+			dialog.ShowInformation("Access Denied", "File system access has been disabled by the host.", mainAppWindow)
+			return
+		}
 		filesWindow := AppInstance.NewWindow("File Browser")
 		filesWindow.SetContent(treeContainer)
 		filesWindow.Resize(fyne.NewSize(500, 600))
@@ -359,10 +402,23 @@ func main() {
 			dialog.ShowError(fmt.Errorf("File client (shared) not initialized"), filesWindow)
 		}
 	})
+	if !canAccessFileSystem {
+		log.Println("INFO: File system access denied by host. Disabling 'Files' button.")
+		getFSButton.Disable()
+	}
 
 	terminalButton := widget.NewButton("Terminal", func() {
+		if !canAccessTerminal {
+			log.Println("INFO: User clicked 'Terminal' button, but access is denied by host.")
+			dialog.ShowInformation("Access Denied", "Terminal access has been disabled by the host.", mainAppWindow)
+			return
+		}
 		openTerminalWindow(currentFyneApp)
 	})
+	if !canAccessTerminal {
+		log.Println("INFO: Terminal access denied by host. Disabling 'Terminal' button.")
+		terminalButton.Disable()
+	}
 
 	pingLabel = widget.NewLabel("RTT: --- ms")
 	fpsLabel = widget.NewLabel("FPS: ---")
@@ -520,6 +576,23 @@ func appendToTerminalOutput(textChunk string) {
 }
 
 func openTerminalWindow(theApp fyne.App) {
+	if !canAccessTerminal {
+		log.Println("INFO: Attempted to open terminal window, but access is denied by host.")
+		var parentWin fyne.Window
+		if mainWindow != nil {
+			parentWin = mainWindow
+		} else if AppInstance != nil {
+			allWindows := AppInstance.Driver().AllWindows()
+			if len(allWindows) > 0 {
+				parentWin = allWindows[0]
+			}
+		}
+		if parentWin != nil {
+			dialog.ShowInformation("Access Denied", "Terminal access has been disabled by the host.", parentWin)
+		}
+		return
+	}
+
 	terminalMutex.Lock()
 	if terminalWindow != nil {
 		log.Println("DEBUG: openTerminalWindow - Window already open. Requesting focus.")
