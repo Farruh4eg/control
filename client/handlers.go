@@ -175,6 +175,34 @@ func (mo *mouseOverlay) MouseUp(ev *desktop.MouseEvent) {
 	mo.mu.Unlock()
 }
 
+func (mo *mouseOverlay) sendScrollEvent(scrollX, scrollY float32) {
+	if !canControlMouse {
+		log.Printf("Scroll event (dX: %.2f, dY: %.2f) dropped due to host permissions.", scrollX, scrollY)
+		return
+	}
+	req := &pb.FeedRequest{
+		Message:        "mouse_event",
+		MouseEventType: "scroll",
+		ScrollX:        scrollX,
+		ScrollY:        scrollY,
+		ClientWidth:    1920,
+		ClientHeight:   1080,
+		Timestamp:      time.Now().UnixNano(),
+	}
+
+	select {
+	case mo.inputEventsChan <- req:
+		// Event sent
+	default:
+		log.Println("Scroll event dropped (inputEventsChan channel full)")
+	}
+}
+
+func (mo *mouseOverlay) Scrolled(ev *fyne.ScrollEvent) {
+	mo.requestFocus()
+	mo.sendScrollEvent(ev.Scrolled.DX, ev.Scrolled.DY)
+}
+
 func forwardVideoFeed(stream pb.RemoteControlService_GetFeedClient, ffmpegInput io.Writer) {
 	defer func() {
 		log.Println("ForwardVideoFeed: Goroutine stopped.")

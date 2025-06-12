@@ -32,6 +32,8 @@ message FeedRequest {
   bool modifier_ctrl = 14;
   bool modifier_alt = 15;
   bool modifier_super = 16;
+  float scrollX = 17;
+  float scrollY = 18;
 }
 
 

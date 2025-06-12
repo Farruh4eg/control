@@ -167,6 +167,21 @@ func handleInputEvents(inputEvents chan *pb.FeedRequest, scaleX, scaleY float32)
 				robotgo.MouseDown(mouseBtn)
 			} else if eventType == "up" {
 				robotgo.MouseUp(mouseBtn)
+			} else if eventType == "scroll" {
+				scrollX := reqMsg.GetScrollX()
+				scrollY := reqMsg.GetScrollY()
+
+				if scrollX > 0 {
+					robotgo.ScrollDir(int(scrollX), "right")
+				} else if scrollX < 0 {
+					robotgo.ScrollDir(int(-scrollX), "left")
+				}
+				if scrollY > 0 {
+					robotgo.ScrollDir(int(scrollY), "down")
+				} else if scrollY < 0 {
+					robotgo.ScrollDir(int(-scrollY), "up")
+				}
+				log.Printf("Handled scroll event: dX=%.2f, dY=%.2f", scrollX, scrollY)
 			}
 
 		case "keyboard_event":
