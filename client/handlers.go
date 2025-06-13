@@ -21,12 +21,20 @@ type mouseOverlay struct {
 	mouseBtnState   string
 	mu              sync.Mutex
 	window          fyne.Window
+	isShiftDown     bool
+	isCtrlDown      bool
+	isAltDown       bool
+	isSuperDown     bool
 }
 
 func newMouseOverlay(inputChan chan<- *pb.FeedRequest, win fyne.Window) *mouseOverlay {
 	mo := &mouseOverlay{
 		inputEventsChan: inputChan,
 		window:          win,
+		isShiftDown:     false,
+		isCtrlDown:      false,
+		isAltDown:       false,
+		isSuperDown:     false,
 	}
 	mo.ExtendBaseWidget(mo)
 	return mo
@@ -49,11 +57,94 @@ func (mo *mouseOverlay) FocusLost() {
 }
 
 func (mo *mouseOverlay) TypedKey(ev *fyne.KeyEvent) {
+	// TODO: Check canControlKeyboard if implemented
+	var pbReq *pb.FeedRequest
+	keyboardEventType := "keydown"
 
+	switch ev.Name {
+	case desktop.KeyShiftLeft, desktop.KeyShiftRight:
+		mo.isShiftDown = !mo.isShiftDown
+		if !mo.isShiftDown {
+			keyboardEventType = "keyup"
+		}
+		log.Printf("Modifier Key: Shift, New State: %s", keyboardEventType)
+		pbReq = &pb.FeedRequest{
+			Message:           "keyboard_event",
+			KeyboardEventType: keyboardEventType,
+			KeyName:           "shift", // Generic name for server-side mapping
+		}
+	case desktop.KeyControlLeft, desktop.KeyControlRight:
+		mo.isCtrlDown = !mo.isCtrlDown
+		if !mo.isCtrlDown {
+			keyboardEventType = "keyup"
+		}
+		log.Printf("Modifier Key: Ctrl, New State: %s", keyboardEventType)
+		pbReq = &pb.FeedRequest{
+			Message:           "keyboard_event",
+			KeyboardEventType: keyboardEventType,
+			KeyName:           "ctrl",
+		}
+	case desktop.KeyAltLeft, desktop.KeyAltRight, desktop.KeyMenu:
+		mo.isAltDown = !mo.isAltDown
+		if !mo.isAltDown {
+			keyboardEventType = "keyup"
+		}
+		log.Printf("Modifier Key: Alt, New State: %s", keyboardEventType)
+		pbReq = &pb.FeedRequest{
+			Message:           "keyboard_event",
+			KeyboardEventType: keyboardEventType,
+			KeyName:           "alt",
+		}
+	case desktop.KeySuperLeft, desktop.KeySuperRight:
+		mo.isSuperDown = !mo.isSuperDown
+		if !mo.isSuperDown {
+			keyboardEventType = "keyup"
+		}
+		log.Printf("Modifier Key: Super, New State: %s", keyboardEventType)
+		pbReq = &pb.FeedRequest{
+			Message:           "keyboard_event",
+			KeyboardEventType: keyboardEventType,
+			KeyName:           "super",
+		}
+	default:
+		log.Printf("Normal Key: %s, Physical: %s", ev.Name, ev.Physical)
+		pbReq = &pb.FeedRequest{
+			Message:           "keyboard_event",
+			KeyboardEventType: "keydown",
+			KeyName:           string(ev.Name),
+		}
+	}
+
+	if pbReq != nil {
+		pbReq.ModifierShift = mo.isShiftDown
+		pbReq.ModifierCtrl = mo.isCtrlDown
+		pbReq.ModifierAlt = mo.isAltDown
+		pbReq.ModifierSuper = mo.isSuperDown
+		pbReq.Timestamp = time.Now().UnixNano()
+
+		select {
+		case mo.inputEventsChan <- pbReq:
+		default:
+			log.Println("Keyboard event (TypedKey) dropped (inputEventsChan channel full)")
+		}
+	}
 }
 
 func (mo *mouseOverlay) TypedRune(r rune) {
+	// TODO: Check canControlKeyboard if implemented
+	log.Printf("TypedRune: %c", r)
+	req := &pb.FeedRequest{
+		Message:           "keyboard_event",
+		KeyboardEventType: "keychar",
+		KeyCharStr:        string(r),
+		Timestamp:         time.Now().UnixNano(),
+	}
 
+	select {
+	case mo.inputEventsChan <- req:
+	default:
+		log.Println("Rune event dropped (inputEventsChan channel full)")
+	}
 }
 
 func (mo *mouseOverlay) TypedShortcut(sc fyne.Shortcut) {

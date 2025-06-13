@@ -185,75 +185,79 @@ func handleInputEvents(inputEvents chan *pb.FeedRequest, scaleX, scaleY float32)
 			}
 
 		case "keyboard_event":
-			log.Printf("DEBUG: [handleInputEvents] Entered keyboard_event processing block. Type: '%s', KeyName: '%s', KeyChar: '%s'", reqMsg.GetKeyboardEventType(), reqMsg.GetKeyName(), reqMsg.GetKeyCharStr())
-			kbEventType := reqMsg.GetKeyboardEventType()
-			fyneKeyName := reqMsg.GetKeyName()
-			keyChar := reqMsg.GetKeyCharStr()
-
-			log.Printf("Received KeyboardEvent: Type='%s', FyneKeyName='%s', KeyChar='%s', Modifiers: Shift[%t], Ctrl[%t], Alt[%t], Super[%t]",
-				kbEventType, fyneKeyName, keyChar, reqMsg.GetModifierShift(), reqMsg.GetModifierCtrl(), reqMsg.GetModifierAlt(), reqMsg.GetModifierSuper())
-
-			robotgoKeyName, isSpecial := mapFyneKeyToRobotGo(fyneKeyName)
-			if fyneKeyName != "" {
-				log.Printf("Mapped FyneKeyName '%s' to robotgoKeyName '%s' (isSpecial: %t)", fyneKeyName, robotgoKeyName, isSpecial)
-			}
-
-			if kbEventType == "keydown" && robotgoKeyName == "delete" && reqMsg.GetModifierCtrl() && reqMsg.GetModifierAlt() {
-				log.Println("Action: Simulating Ctrl+Alt+Delete")
-				robotgo.KeyToggle("ctrl", "down")
-				robotgo.KeyToggle("alt", "down")
-				robotgo.KeyTap("delete")
-				robotgo.KeyToggle("alt", "up")
-				robotgo.KeyToggle("ctrl", "up")
-			} else {
-				switch kbEventType {
-				case "keydown":
-					if robotgoKeyName != "" {
-						isModifierKey := robotgoKeyName == "shift" || robotgoKeyName == "ctrl" || robotgoKeyName == "alt" || robotgoKeyName == "cmd"
-						if isModifierKey {
-							log.Printf("Action: Modifier '%s' pressed down", robotgoKeyName)
-							robotgo.KeyToggle(robotgoKeyName, "down")
-						} else if isSpecial {
-							log.Printf("Action: Tapping special key '%s'", robotgoKeyName)
-							robotgo.KeyTap(robotgoKeyName)
-						} else {
-							log.Printf("Action: Tapping key '%s'", robotgoKeyName)
-							robotgo.KeyTap(robotgoKeyName)
-						}
-					} else if keyChar != "" {
-						log.Printf("Action: Typing character from keyChar on keydown '%s'", keyChar)
-						robotgo.TypeStr(keyChar)
-					} else {
-						log.Printf("Action: Ignoring keydown event with empty robotgoKeyName and KeyChar.")
-					}
-
-				case "keyup":
-					if robotgoKeyName != "" {
-						isModifierKey := robotgoKeyName == "shift" || robotgoKeyName == "ctrl" || robotgoKeyName == "alt" || robotgoKeyName == "cmd"
-						if isModifierKey {
-							log.Printf("Action: Modifier '%s' released", robotgoKeyName)
-							robotgo.KeyToggle(robotgoKeyName, "up")
-						} else {
-
-							log.Printf("Action: Ignoring non-modifier keyup for '%s' (handled by KeyTap on keydown)", robotgoKeyName)
-						}
-					} else {
-						log.Printf("Action: Ignoring keyup event with empty robotgoKeyName.")
-					}
-
-				case "keychar":
-					if keyChar != "" {
-						log.Printf("Action: Typing character from keychar event '%s'", keyChar)
-						robotgo.TypeStr(keyChar)
-					} else {
-						log.Printf("Action: Ignoring keychar event with empty KeyChar.")
-					}
-				default:
-					log.Printf("Action: Unhandled keyboard event type: '%s'", kbEventType)
-				}
-			}
+			log.Printf("DEBUG: [handleInputEvents] Forwarding to processKeyboardInput. Type: '%s', KeyName: '%s', KeyChar: '%s'", reqMsg.GetKeyboardEventType(), reqMsg.GetKeyName(), reqMsg.GetKeyCharStr())
+			processKeyboardInput(reqMsg)
 		default:
 			log.Printf("Unknown input event message type: %s", reqMsg.Message)
+		}
+	}
+}
+
+func processKeyboardInput(reqMsg *pb.FeedRequest) {
+	kbEventType := reqMsg.GetKeyboardEventType()
+	fyneKeyName := reqMsg.GetKeyName()
+	keyChar := reqMsg.GetKeyCharStr()
+
+	log.Printf("Received KeyboardEvent: Type='%s', FyneKeyName='%s', KeyChar='%s', Modifiers: Shift[%t], Ctrl[%t], Alt[%t], Super[%t]",
+		kbEventType, fyneKeyName, keyChar, reqMsg.GetModifierShift(), reqMsg.GetModifierCtrl(), reqMsg.GetModifierAlt(), reqMsg.GetModifierSuper())
+
+	robotgoKeyName, isSpecial := mapFyneKeyToRobotGo(fyneKeyName)
+	if fyneKeyName != "" {
+		log.Printf("Mapped FyneKeyName '%s' to robotgoKeyName '%s' (isSpecial: %t)", fyneKeyName, robotgoKeyName, isSpecial)
+	}
+
+	if kbEventType == "keydown" && robotgoKeyName == "delete" && reqMsg.GetModifierCtrl() && reqMsg.GetModifierAlt() {
+		log.Println("Action: Simulating Ctrl+Alt+Delete")
+		robotgo.KeyToggle("ctrl", "down")
+		robotgo.KeyToggle("alt", "down")
+		robotgo.KeyTap("delete")
+		robotgo.KeyToggle("alt", "up")
+		robotgo.KeyToggle("ctrl", "up")
+	} else {
+		switch kbEventType {
+		case "keydown":
+			if robotgoKeyName != "" {
+				isModifierKey := robotgoKeyName == "shift" || robotgoKeyName == "ctrl" || robotgoKeyName == "alt" || robotgoKeyName == "cmd"
+				if isModifierKey {
+					log.Printf("Action: Modifier '%s' pressed down", robotgoKeyName)
+					robotgo.KeyToggle(robotgoKeyName, "down")
+				} else if isSpecial {
+					log.Printf("Action: Tapping special key '%s'", robotgoKeyName)
+					robotgo.KeyTap(robotgoKeyName)
+				} else {
+					log.Printf("Action: Tapping key '%s'", robotgoKeyName)
+					robotgo.KeyTap(robotgoKeyName)
+				}
+			} else if keyChar != "" {
+				log.Printf("Action: Typing character from keyChar on keydown '%s'", keyChar)
+				robotgo.TypeStr(keyChar)
+			} else {
+				log.Printf("Action: Ignoring keydown event with empty robotgoKeyName and KeyChar.")
+			}
+
+		case "keyup":
+			if robotgoKeyName != "" {
+				isModifierKey := robotgoKeyName == "shift" || robotgoKeyName == "ctrl" || robotgoKeyName == "alt" || robotgoKeyName == "cmd"
+				if isModifierKey {
+					log.Printf("Action: Modifier '%s' released", robotgoKeyName)
+					robotgo.KeyToggle(robotgoKeyName, "up")
+				} else {
+
+					log.Printf("Action: Ignoring non-modifier keyup for '%s' (handled by KeyTap on keydown)", robotgoKeyName)
+				}
+			} else {
+				log.Printf("Action: Ignoring keyup event with empty robotgoKeyName.")
+			}
+
+		case "keychar":
+			if keyChar != "" {
+				log.Printf("Action: Typing character from keychar event '%s'", keyChar)
+				robotgo.TypeStr(keyChar)
+			} else {
+				log.Printf("Action: Ignoring keychar event with empty KeyChar.")
+			}
+		default:
+			log.Printf("Action: Unhandled keyboard event type: '%s'", kbEventType)
 		}
 	}
 }
@@ -265,12 +269,6 @@ func receiveInputEvents(stream pb.RemoteControlService_GetFeedServer, inputEvent
 
 	for {
 		reqMsg, err := stream.Recv()
-		// [[[cog
-		// import cog
-		// cog.outl("log.Printf(\"DEBUG: [receiveInputEvents] Raw event received from client: MessageType='%s', KeyboardEventType='%s', MouseEventType='%s'\", reqMsg.GetMessage(), reqMsg.GetKeyboardEventType(), reqMsg.GetMouseEventType())")
-		// ]]]
-		log.Printf("DEBUG: [receiveInputEvents] Raw event received from client: MessageType='%s', KeyboardEventType='%s', MouseEventType='%s'", reqMsg.GetMessage(), reqMsg.GetKeyboardEventType(), reqMsg.GetMouseEventType())
-		// [[[end]]]
 		if err != nil {
 			if err == io.EOF {
 				log.Println("Client closed the stream (EOF in receiveInputEvents).")
