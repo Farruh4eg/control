@@ -81,7 +81,6 @@ func (sc *ScreenCapture) start() error {
 
 	args := []string{
 		"-f", "gdigrab",
-
 		"-framerate", "30",
 		"-i", "desktop",
 		"-an",
@@ -92,7 +91,6 @@ func (sc *ScreenCapture) start() error {
 		vfString = fmt.Sprintf("crop=%d:%d:%d:%d,scale=1920:1080,format=yuv420p",
 			captureWidth, captureHeight, captureOffsetX, captureOffsetY)
 	} else {
-
 		vfString = "scale=1920:1080,format=yuv420p"
 	}
 	args = append(args, "-vf", vfString)

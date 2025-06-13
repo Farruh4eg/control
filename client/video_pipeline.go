@@ -48,6 +48,7 @@ func runFFmpegProcess(ffmpegInputReader *io.PipeReader, ffmpegOutputWriter *io.P
 				"flags":     "low_delay",
 				"fflags":    "+nobuffer",
 				"avioflags": "direct",
+				"r":         "30",
 			}).
 			OverWriteOutput().
 			WithInput(ffmpegInputReader).
@@ -170,7 +171,6 @@ func drawFrames(imageCanvas *canvas.Image, frameImageChan chan image.Image, fpsD
 					fps := float64(frameCountSinceLastFPSCalc) / elapsedSeconds
 					fpsDisplayLabel.SetText(fmt.Sprintf("FPS: %.1f", fps))
 				} else {
-
 					fpsDisplayLabel.SetText(fmt.Sprintf("FPS: %d (inst)", frameCountSinceLastFPSCalc))
 				}
 			}
