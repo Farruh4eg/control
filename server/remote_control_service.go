@@ -142,10 +142,12 @@ func mapFyneKeyToRobotGo(fyneKeyName string) (key string, isSpecial bool) {
 				return strings.ToLower(char), false
 			}
 		}
-		if len(fyneKeyName) == 1 {
+		if len(fyneKeyName) == 1 { // Check for single characters like "a", "b", "1", "!"
 			return strings.ToLower(fyneKeyName), false
 		}
-		log.Printf("Unhandled Fyne key name for mapping: '%s'", fyneKeyName)
+		if fyneKeyName != "" {
+			log.Printf("Unhandled Fyne key name for mapping: '%s'", fyneKeyName)
+		}
 		return strings.ToLower(fyneKeyName), false
 	}
 }

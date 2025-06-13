@@ -57,8 +57,11 @@ func (mo *mouseOverlay) FocusLost() {
 }
 
 func (mo *mouseOverlay) TypedKey(ev *fyne.KeyEvent) {
-	// TODO: Check canControlKeyboard if implemented
-	var pbReq *pb.FeedRequest
+	if !canControlKeyboard {
+		log.Println("TypedKey event dropped: Keyboard control denied by host permissions.")
+		return
+	}
+	var pbReq *pb.FeedRequest = nil
 	keyboardEventType := "keydown"
 
 	switch ev.Name {
@@ -71,7 +74,7 @@ func (mo *mouseOverlay) TypedKey(ev *fyne.KeyEvent) {
 		pbReq = &pb.FeedRequest{
 			Message:           "keyboard_event",
 			KeyboardEventType: keyboardEventType,
-			KeyName:           "shift", // Generic name for server-side mapping
+			KeyName:           "shift",
 		}
 	case desktop.KeyControlLeft, desktop.KeyControlRight:
 		mo.isCtrlDown = !mo.isCtrlDown
@@ -107,11 +110,16 @@ func (mo *mouseOverlay) TypedKey(ev *fyne.KeyEvent) {
 			KeyName:           "super",
 		}
 	default:
-		log.Printf("Normal Key: %s, Physical: %s", ev.Name, ev.Physical)
-		pbReq = &pb.FeedRequest{
-			Message:           "keyboard_event",
-			KeyboardEventType: "keydown",
-			KeyName:           string(ev.Name),
+		keyNameStr := string(ev.Name)
+		if keyNameStr == "" {
+			log.Printf("TypedKey: Empty ev.Name received. Physical: %s. Likely handled by TypedRune. Ignoring this TypedKey event.", ev.Physical)
+		} else {
+			log.Printf("TypedKey: Normal Key: '%s', Physical: %s", keyNameStr, ev.Physical)
+			pbReq = &pb.FeedRequest{
+				Message:           "keyboard_event",
+				KeyboardEventType: "keydown",
+				KeyName:           keyNameStr,
+			}
 		}
 	}
 
@@ -122,6 +130,10 @@ func (mo *mouseOverlay) TypedKey(ev *fyne.KeyEvent) {
 		pbReq.ModifierSuper = mo.isSuperDown
 		pbReq.Timestamp = time.Now().UnixNano()
 
+		log.Printf("Client Sending Keyboard Event: Type='%s', KeyName='%s', KeyChar='%s', Shift[%t], Ctrl[%t], Alt[%t], Super[%t]",
+			pbReq.KeyboardEventType, pbReq.KeyName, pbReq.KeyCharStr,
+			pbReq.ModifierShift, pbReq.ModifierCtrl, pbReq.ModifierAlt, pbReq.ModifierSuper)
+
 		select {
 		case mo.inputEventsChan <- pbReq:
 		default:
@@ -131,7 +143,10 @@ func (mo *mouseOverlay) TypedKey(ev *fyne.KeyEvent) {
 }
 
 func (mo *mouseOverlay) TypedRune(r rune) {
-	// TODO: Check canControlKeyboard if implemented
+	if !canControlKeyboard {
+		log.Println("TypedRune event dropped: Keyboard control denied by host permissions.")
+		return
+	}
 	log.Printf("TypedRune: %c", r)
 	req := &pb.FeedRequest{
 		Message:           "keyboard_event",
