@@ -25,6 +25,11 @@ type mouseOverlay struct {
 	isCtrlDown      bool
 	isAltDown       bool
 	isSuperDown     bool
+
+	batchedMoves []*pb.MouseMovePoint
+	batchTicker  *time.Ticker
+	batchMutex   sync.Mutex
+	lastMoveTime time.Time
 }
 
 func newMouseOverlay(inputChan chan<- *pb.FeedRequest, win fyne.Window) *mouseOverlay {
@@ -35,8 +40,23 @@ func newMouseOverlay(inputChan chan<- *pb.FeedRequest, win fyne.Window) *mouseOv
 		isCtrlDown:      false,
 		isAltDown:       false,
 		isSuperDown:     false,
+		batchedMoves:    make([]*pb.MouseMovePoint, 0),
+		batchTicker:     time.NewTicker(20 * time.Millisecond),
 	}
 	mo.ExtendBaseWidget(mo)
+
+	go func() {
+		defer func() {
+
+			mo.batchTicker.Stop()
+			log.Println("Mouse batching ticker goroutine stopped.")
+		}()
+
+		for range mo.batchTicker.C {
+			mo.sendBatchedMoves()
+		}
+	}()
+
 	return mo
 }
 
@@ -134,6 +154,8 @@ func (mo *mouseOverlay) TypedKey(ev *fyne.KeyEvent) {
 			pbReq.KeyboardEventType, pbReq.KeyName, pbReq.KeyCharStr,
 			pbReq.ModifierShift, pbReq.ModifierCtrl, pbReq.ModifierAlt, pbReq.ModifierSuper)
 
+		mo.sendBatchedMoves()
+
 		select {
 		case mo.inputEventsChan <- pbReq:
 		default:
@@ -147,6 +169,7 @@ func (mo *mouseOverlay) TypedRune(r rune) {
 		log.Println("TypedRune event dropped: Keyboard control denied by host permissions.")
 		return
 	}
+	mo.sendBatchedMoves()
 	log.Printf("TypedRune: %c", r)
 	req := &pb.FeedRequest{
 		Message:           "keyboard_event",
@@ -222,15 +245,62 @@ func (mo *mouseOverlay) MouseIn(_ *desktop.MouseEvent) {
 	mo.mu.Lock()
 	currentBtn := mo.mouseBtnState
 	mo.mu.Unlock()
+	mo.sendBatchedMoves()
 	mo.sendMouseEvent("in", currentBtn, fyne.Position{})
 }
 
 func (mo *mouseOverlay) MouseMoved(ev *desktop.MouseEvent) {
 
-	mo.mu.Lock()
-	currentBtn := mo.mouseBtnState
-	mo.mu.Unlock()
-	mo.sendMouseEvent("move", currentBtn, ev.Position)
+	if !canControlMouse {
+
+		return
+	}
+
+	sx, sy := mo.scaleCoordinates(ev.Position)
+
+	mo.batchMutex.Lock()
+
+	mo.batchedMoves = append(mo.batchedMoves, &pb.MouseMovePoint{X: int32(sx), Y: int32(sy)})
+	mo.lastMoveTime = time.Now()
+
+	mo.batchMutex.Unlock()
+
+}
+
+func (mo *mouseOverlay) sendBatchedMoves() {
+	mo.batchMutex.Lock()
+	defer mo.batchMutex.Unlock()
+	mo.sendBatchedMovesLocked()
+}
+
+func (mo *mouseOverlay) sendBatchedMovesLocked() {
+	if len(mo.batchedMoves) == 0 {
+		return
+	}
+
+	movesToSend := make([]*pb.MouseMovePoint, len(mo.batchedMoves))
+	copy(movesToSend, mo.batchedMoves)
+
+	req := &pb.FeedRequest{
+		Message:           "mouse_event",
+		MouseEventType:    "batched_mouse_moves",
+		BatchedMouseMoves: movesToSend,
+		Timestamp:         time.Now().UnixNano(),
+		ClientWidth:       1920,
+		ClientHeight:      1080,
+	}
+
+	log.Printf("Sending batched mouse moves: %d points", len(req.BatchedMouseMoves))
+
+	select {
+	case mo.inputEventsChan <- req:
+
+	default:
+		log.Printf("Batched mouse event dropped (inputEventsChan channel full), %d points lost", len(req.BatchedMouseMoves))
+	}
+
+	mo.batchedMoves = nil
+
 }
 
 func (mo *mouseOverlay) MouseOut() {
@@ -238,12 +308,14 @@ func (mo *mouseOverlay) MouseOut() {
 	mo.mu.Lock()
 	currentBtn := mo.mouseBtnState
 	mo.mu.Unlock()
+	mo.sendBatchedMoves()
 	mo.sendMouseEvent("out", currentBtn, fyne.Position{})
 }
 
 func (mo *mouseOverlay) MouseDown(ev *desktop.MouseEvent) {
-
 	mo.requestFocus()
+	mo.sendBatchedMoves()
+
 	var btnStr string
 	switch ev.Button {
 	case desktop.MouseButtonPrimary:
@@ -262,6 +334,7 @@ func (mo *mouseOverlay) MouseDown(ev *desktop.MouseEvent) {
 }
 
 func (mo *mouseOverlay) MouseUp(ev *desktop.MouseEvent) {
+	mo.sendBatchedMoves()
 	var btnStr string
 	switch ev.Button {
 	case desktop.MouseButtonPrimary:
@@ -298,7 +371,7 @@ func (mo *mouseOverlay) sendScrollEvent(scrollX, scrollY float32) {
 
 	select {
 	case mo.inputEventsChan <- req:
-		// Event sent
+
 	default:
 		log.Println("Scroll event dropped (inputEventsChan channel full)")
 	}
@@ -306,6 +379,7 @@ func (mo *mouseOverlay) sendScrollEvent(scrollX, scrollY float32) {
 
 func (mo *mouseOverlay) Scrolled(ev *fyne.ScrollEvent) {
 	mo.requestFocus()
+	mo.sendBatchedMoves()
 	mo.sendScrollEvent(ev.Scrolled.DX, ev.Scrolled.DY)
 }
 

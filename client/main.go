@@ -83,6 +83,18 @@ func customRelayDialer(ctx context.Context, targetRelayDataAddr string) (net.Con
 	}
 	log.Printf("INFO: [Relay Dialer] Connected to %s. Sending session token.", targetRelayDataAddr)
 
+	// Set TCP_NODELAY
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		if err := tcpConn.SetNoDelay(true); err != nil {
+			log.Printf("WARN: [Relay Dialer] Failed to set TCP_NODELAY: %v", err)
+
+		} else {
+			log.Printf("INFO: [Relay Dialer] TCP_NODELAY set to true for %s", targetRelayDataAddr)
+		}
+	} else {
+		log.Printf("WARN: [Relay Dialer] Connection is not a *net.TCPConn, cannot set TCP_NODELAY. Type: %T", conn)
+	}
+
 	if sessionToken == nil || *sessionToken == "" {
 		conn.Close()
 		log.Printf("ERROR: [Relay Dialer] Session token is not set.")
@@ -195,7 +207,7 @@ func main() {
 				log.Printf("INFO: Conditions met for insecure retry to %s (local-like address, error: %v, flag enabled).", *serverAddrActual, dialErr)
 				log.Printf("WARN: Retrying connection to %s with InsecureSkipVerify enabled.", *serverAddrActual)
 
-				tlsCredsRetry, errRetry := loadTLSCredentialsFromEmbed(*serverAddrActual, true) // isRetryInsecure = true
+				tlsCredsRetry, errRetry := loadTLSCredentialsFromEmbed(*serverAddrActual, true)
 				if errRetry != nil {
 					log.Fatalf("FATAL: Cannot load TLS credentials for insecure retry: %v", errRetry)
 				}

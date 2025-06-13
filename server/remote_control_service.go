@@ -41,7 +41,7 @@ func (s *server) GetFeed(stream pb.RemoteControlService_GetFeedServer) error {
 
 	inputEvents := make(chan *pb.FeedRequest, 120)
 
-	go handleInputEvents(inputEvents, scaleX, scaleY)
+	go handleInputEvents(s, inputEvents, scaleX, scaleY)
 	go receiveInputEvents(stream, inputEvents)
 
 	return sendScreenFeed(stream, capture)
@@ -142,7 +142,7 @@ func mapFyneKeyToRobotGo(fyneKeyName string) (key string, isSpecial bool) {
 				return strings.ToLower(char), false
 			}
 		}
-		if len(fyneKeyName) == 1 { // Check for single characters like "a", "b", "1", "!"
+		if len(fyneKeyName) == 1 {
 			return strings.ToLower(fyneKeyName), false
 		}
 		if fyneKeyName != "" {
@@ -152,38 +152,79 @@ func mapFyneKeyToRobotGo(fyneKeyName string) (key string, isSpecial bool) {
 	}
 }
 
-func handleInputEvents(inputEvents chan *pb.FeedRequest, scaleX, scaleY float32) {
+func handleInputEvents(s *server, inputEvents chan *pb.FeedRequest, scaleX, scaleY float32) {
 	log.Println("Input event handler goroutine started.")
 	defer log.Println("Input event handler goroutine stopped.")
 
 	for reqMsg := range inputEvents {
+
+		if reqMsg.Message == "mouse_event" && !s.allowMouseControl {
+
+			isBatched := false
+			if reqMsg.GetMouseEventType() == "batched_mouse_moves" {
+
+				if reqMsg.GetBatchedMouseMoves() != nil && len(reqMsg.GetBatchedMouseMoves()) > 0 {
+					isBatched = true
+				}
+			}
+			log.Printf("Mouse event (type: %s, batched: %t) ignored: Mouse control denied by host permissions.", reqMsg.GetMouseEventType(), isBatched)
+			continue
+		}
+
 		switch reqMsg.Message {
 		case "mouse_event":
-			serverX := int(float32(reqMsg.GetMouseX()) * scaleX)
-			serverY := int(float32(reqMsg.GetMouseY()) * scaleY)
-			robotgo.Move(serverX, serverY)
 			eventType := reqMsg.GetMouseEventType()
 			mouseBtn := reqMsg.GetMouseBtn()
 
-			if eventType == "down" {
-				robotgo.MouseDown(mouseBtn)
-			} else if eventType == "up" {
-				robotgo.MouseUp(mouseBtn)
-			} else if eventType == "scroll" {
-				scrollX := reqMsg.GetScrollX()
-				scrollY := reqMsg.GetScrollY()
+			if eventType == "batched_mouse_moves" {
 
-				if scrollX > 0 {
-					robotgo.ScrollDir(int(scrollX), "right")
-				} else if scrollX < 0 {
-					robotgo.ScrollDir(int(-scrollX), "left")
+				batchedMoves := reqMsg.GetBatchedMouseMoves()
+				if len(batchedMoves) > 0 {
+					log.Printf("Received and processing 'batched_mouse_moves' with %d points.", len(batchedMoves))
+					for _, point := range batchedMoves {
+						if point == nil {
+							continue
+						}
+
+						serverX := int(float32(point.X) * scaleX)
+						serverY := int(float32(point.Y) * scaleY)
+						robotgo.Move(serverX, serverY)
+
+					}
+				} else {
+					log.Printf("'batched_mouse_moves' received, but the batch contains no points.")
 				}
-				if scrollY > 0 {
-					robotgo.ScrollDir(int(scrollY), "down")
-				} else if scrollY < 0 {
-					robotgo.ScrollDir(int(-scrollY), "up")
+			} else {
+
+				serverX := int(float32(reqMsg.GetMouseX()) * scaleX)
+				serverY := int(float32(reqMsg.GetMouseY()) * scaleY)
+				robotgo.Move(serverX, serverY)
+
+				if eventType == "down" {
+					robotgo.MouseDown(mouseBtn)
+				} else if eventType == "up" {
+					robotgo.MouseUp(mouseBtn)
+				} else if eventType == "scroll" {
+					scrollX := reqMsg.GetScrollX()
+					scrollY := reqMsg.GetScrollY()
+
+					if scrollX > 0 {
+						robotgo.ScrollDir(int(scrollX), "right")
+					} else if scrollX < 0 {
+						robotgo.ScrollDir(int(-scrollX), "left")
+					}
+					if scrollY > 0 {
+						robotgo.ScrollDir(int(scrollY), "down")
+					} else if scrollY < 0 {
+						robotgo.ScrollDir(int(-scrollY), "up")
+					}
+					log.Printf("Handled scroll event: dX=%.2f, dY=%.2f", scrollX, scrollY)
+				} else if eventType == "move" {
+
+				} else if eventType != "in" && eventType != "out" {
+
+					log.Printf("Received unhandled mouse event type: %s", eventType)
 				}
-				log.Printf("Handled scroll event: dX=%.2f, dY=%.2f", scrollX, scrollY)
 			}
 
 		case "keyboard_event":

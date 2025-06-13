@@ -12,6 +12,12 @@ service TerminalService {
   rpc CommandStream(stream TerminalRequest) returns (stream TerminalResponse);
 }
 
+message MouseMovePoint {
+  int32 x = 1;
+  int32 y = 2;
+  // int64 timestamp_offset_nano = 3;
+}
+
 message FeedRequest {
   bool success = 1;
   string message = 2;
@@ -34,6 +40,9 @@ message FeedRequest {
   bool modifier_super = 16;
   float scrollX = 17;
   float scrollY = 18;
+
+  // New field for batched mouse moves
+  repeated MouseMovePoint batched_mouse_moves = 19;
 }
 
 
