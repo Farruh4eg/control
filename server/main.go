@@ -623,7 +623,7 @@ func loadTLSCredentialsFromEmbed(relaxedAuthEnabled bool) (credentials.Transport
 	}
 	config := &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
-		MinVersion:   tls.VersionTLS12,
+		MinVersion:   tls.VersionTLS13,
 		ServerName:   "localhost",
 	}
 

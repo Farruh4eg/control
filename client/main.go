@@ -503,7 +503,7 @@ func loadTLSCredentialsFromEmbed(serverAddrString string, isRetryInsecure bool) 
 	config := &tls.Config{
 		Certificates: []tls.Certificate{clientCert},
 		RootCAs:      serverCertPool,
-		MinVersion:   tls.VersionTLS12,
+		MinVersion:   tls.VersionTLS13,
 		ServerName:   tlsServerName,
 	}
 
