@@ -246,7 +246,7 @@ func main() {
 		grpc.MaxSendMsgSize(1024 * 1024 * 10),
 		grpc.MaxRecvMsgSize(1024 * 1024 * 10),
 	}
-	log.Println("WARN: TLS is temporarily disabled for server for compilation purposes.")
+	// log.Println("WARN: TLS is temporarily disabled for server for compilation purposes.")
 
 	grpcServer := grpc.NewServer(opts...)
 	s.grpcServer = grpcServer
@@ -538,9 +538,11 @@ func (s *server) manageRelayRegistrationAndTunnels(relayCtrlAddrFull, localIniti
 }
 
 func (s *server) handleHostSideTunnel(localGrpcServiceAddr, relayDataAddrForHost, sessionToken, registeredHostID string) {
+	log.Printf("[TUNNEL_DEBUG] handleHostSideTunnel called with localGrpcServiceAddr: %s, relayDataAddrForHost: %s, sessionToken: %s, registeredHostID: %s", localGrpcServiceAddr, relayDataAddrForHost, sessionToken, registeredHostID)
 	logCtx := fmt.Sprintf("[Tunnel %s Host %s]", sessionToken[:6], registeredHostID)
 	log.Printf("INFO: %s Host-side: Attempting to connect to relay data endpoint %s", logCtx, relayDataAddrForHost)
 
+	log.Printf("[TUNNEL_DEBUG] Attempting to dial relayDataAddrForHost: %s", relayDataAddrForHost)
 	hostProxyConn, err := net.DialTimeout("tcp", relayDataAddrForHost, 10*time.Second)
 	if err != nil {
 		log.Printf("ERROR: %s Host-side: Failed to connect to relay data endpoint %s: %v", logCtx, relayDataAddrForHost, err)

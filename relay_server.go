@@ -402,6 +402,7 @@ func (r *RelayServer) setupSession(launcherConn net.Conn, targetHostID string, h
 	}
 	dynamicPort := tcpAddr.Port
 	log.Printf("INFO: Session %s for host '%s': Dynamic data listener on port %d", sessionToken, targetHostID, dynamicPort)
+	log.Printf("INFO: Session %s: Data listener created successfully on %s", sessionToken, dataListener.Addr().String())
 
 	fmt.Fprintf(launcherConn, "SESSION_READY %d %s\n", dynamicPort, sessionToken)
 	log.Printf("INFO: Session %s: Notified launcher %s to have client.exe connect to relay's public IP on port %d",
@@ -429,6 +430,7 @@ func (r *RelayServer) setupSession(launcherConn net.Conn, targetHostID string, h
 
 // manageDataSession waits for two connections on the dataListener.
 func (r *RelayServer) manageDataSession(dataListener net.Listener, sessionToken string, hostID string, port int) {
+	defer log.Printf("INFO: Session %s (Host '%s', Port %d): manageDataSession finished.", sessionToken, hostID, port)
 	defer dataListener.Close()
 	log.Printf("INFO: Session %s (Host '%s'): Waiting for data connections on port %d (timeout: %s for each, plus ident)", sessionToken, hostID, port, dataConnTimeout)
 
@@ -439,9 +441,11 @@ func (r *RelayServer) manageDataSession(dataListener net.Listener, sessionToken 
 	connChan := make(chan net.Conn, 2)
 	errChan := make(chan error, 2)
 
+	log.Printf("INFO: Session %s (Host '%s', Port %d): Goroutine 1 (for first connection) starting to Accept() on %s", sessionToken, hostID, port, dataListener.Addr().String())
 	go func() {
 		defer wg.Done()
 		conn, err := dataListener.Accept()
+		log.Printf("INFO: Session %s (Host '%s', Port %d): Goroutine 1 Accept() on %s returned. Conn: %v, Err: %v", sessionToken, hostID, port, dataListener.Addr().String(), conn, err)
 		if err != nil {
 			if !strings.Contains(err.Error(), "use of closed network connection") {
 				errChan <- fmt.Errorf("accept1 failed for session %s: %w", sessionToken, err)
@@ -451,9 +455,11 @@ func (r *RelayServer) manageDataSession(dataListener net.Listener, sessionToken 
 		connChan <- conn
 	}()
 
+	log.Printf("INFO: Session %s (Host '%s', Port %d): Goroutine 2 (for second connection) starting to Accept() on %s", sessionToken, hostID, port, dataListener.Addr().String())
 	go func() {
 		defer wg.Done()
 		conn, err := dataListener.Accept()
+		log.Printf("INFO: Session %s (Host '%s', Port %d): Goroutine 2 Accept() on %s returned. Conn: %v, Err: %v", sessionToken, hostID, port, dataListener.Addr().String(), conn, err)
 		if err != nil {
 			if !strings.Contains(err.Error(), "use of closed network connection") {
 				errChan <- fmt.Errorf("accept2 failed for session %s: %w", sessionToken, err)
@@ -482,7 +488,7 @@ LoopAccept:
 	wg.Wait()
 
 	if len(acceptedConns) < 2 {
-		log.Printf("WARN: Session %s: Did not receive two data connections for port %d. Closing %d accepted connections.", sessionToken, port, len(acceptedConns))
+		log.Printf("WARN: Session %s: Did not receive two data connections for port %d. Received %d/2. Closing %d accepted connections and aborting session.", sessionToken, port, len(acceptedConns), len(acceptedConns))
 		for _, conn := range acceptedConns {
 			conn.Close()
 		}
