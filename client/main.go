@@ -239,7 +239,7 @@ func main() {
 			log.Fatalf("FATAL: Relay connection type specified but no session token provided.")
 		}
 		log.Printf("INFO: Using custom dialer for relay connection to %s with session token %s", *serverAddrActual, *sessionToken)
-		tlsCreds, err := loadTLSCredentialsFromEmbed(*serverAddrActual, false)
+		tlsCreds, err := loadTLSCredentialsFromEmbed(*serverAddrActual, allowLocalInsecure)
 		if err != nil {
 			log.Fatalf("FATAL: Cannot load TLS credentials for relay: %v", err)
 		}
@@ -335,31 +335,20 @@ func main() {
 		for req := range inputEvents {
 			if err := stream.Send(req); err != nil {
 				log.Printf("ERROR: Error sending input event (type: %s): %v", req.Message, err)
+				// Check if the error indicates a closed stream
+				if err == io.EOF {
+					log.Println("Input event sender: Stream closed by server (EOF). Stopping sender.")
+					return
+				}
+				s, ok := status.FromError(err)
+				if ok && (s.Code() == codes.Unavailable || s.Code() == codes.Canceled) {
+					log.Printf("Input event sender: Stream unavailable or canceled (Code: %s). Stopping sender.", s.Code())
+					return
+				}
 			}
 		}
-		log.Println("Input event sender goroutine stopped.")
+		log.Println("Input event sender goroutine stopped because inputEvents channel was closed.")
 	}()
-
-	if mainAppWindow != nil && mainAppWindow.Canvas() != nil {
-		mainAppWindow.Canvas().SetOnTypedRune(func(r rune) {
-			if !canControlKeyboard {
-				log.Println("Keyboard rune event dropped due to host permissions.")
-				return
-			}
-			log.Printf("DEBUG: [Client] Keyboard permission active. Attempting to send keychar event: Char='%s'", string(r))
-			sendKeyboardEvent("keychar", "", string(r))
-		})
-		mainAppWindow.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
-			if !canControlKeyboard {
-				log.Println("Keyboard key event dropped due to host permissions.")
-				return
-			}
-			log.Printf("DEBUG: [Client] Keyboard permission active. Attempting to send keydown event: KeyName='%s'", string(ev.Name))
-			sendKeyboardEvent("keydown", string(ev.Name), "")
-		})
-	} else {
-		log.Println("Error: mainAppWindow or its canvas is nil, cannot set keyboard handlers.")
-	}
 
 	widgetLabel := widget.NewLabel("Video Feed:")
 	toggleButtonTextBinding := binding.NewString()

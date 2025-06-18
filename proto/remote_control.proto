@@ -52,6 +52,7 @@ message FeedResponse {
   int64 timestamp = 3;
   string contentType = 4;
   string hwAccel = 5;
+  string error_message = 6;
 }
 
 message PingRequest {

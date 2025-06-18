@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"io"
@@ -11,6 +12,7 @@ import (
 	pb "control_grpc/gen/proto"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 )
@@ -412,6 +414,17 @@ func forwardVideoFeed(stream pb.RemoteControlService_GetFeedClient, ffmpegInput 
 				}
 			}
 			return
+		}
+
+		// Check for server-sent error message
+		if errMsg := frame.GetErrorMessage(); errMsg != "" {
+			log.Printf("Error from server on video stream: %s", errMsg)
+			if mainWindow != nil { // mainWindow is the global variable from client/file_system.go
+				dialog.ShowError(fmt.Errorf("Video stream error from host: %s", errMsg), mainWindow)
+			} else {
+				log.Println("Cannot show video error dialog: global mainWindow is nil.")
+			}
+			return // Stop processing video
 		}
 
 		videoChunk := frame.GetData()

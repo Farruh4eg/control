@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"strings"
@@ -18,12 +19,26 @@ func (s *server) GetFeed(stream pb.RemoteControlService_GetFeedServer) error {
 	serverWidth, serverHeight := robotgo.GetScreenSize()
 	log.Printf("Server screen dimensions: %dx%d", serverWidth, serverHeight)
 
-	capture, err := screen.NewScreenCapture()
+	var capture *screen.ScreenCapture
+	var err error
+	videoCaptureActive := false
+
+	capture, err = screen.NewScreenCapture()
 	if err != nil {
 		log.Printf("Error initializing screen capture: %v", err)
-		return status.Errorf(codes.Internal, "Failed to initialize screen capture: %v", err)
+		errMsg := fmt.Sprintf("Failed to initialize screen capture: %v", err)
+		if sendErr := stream.Send(&pb.FeedResponse{
+			ErrorMessage: errMsg,
+		}); sendErr != nil {
+			log.Printf("Error sending screen capture init failure message to client: %v", sendErr)
+		}
+		videoCaptureActive = false
+		// Do not return; allow input events to proceed.
+	} else {
+		log.Println("Screen capture initialized successfully.")
+		videoCaptureActive = true
+		defer capture.Close()
 	}
-	defer capture.Close()
 
 	reqMsgInit, err := stream.Recv()
 	if err != nil {
@@ -40,11 +55,48 @@ func (s *server) GetFeed(stream pb.RemoteControlService_GetFeedServer) error {
 	log.Printf("Calculated scale factors: ScaleX=%.2f, ScaleY=%.2f", scaleX, scaleY)
 
 	inputEvents := make(chan *pb.FeedRequest, 120)
-
 	go handleInputEvents(s, inputEvents, scaleX, scaleY)
-	go receiveInputEvents(stream, inputEvents)
 
-	return sendScreenFeed(stream, capture)
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- receiveInputEvents(stream, inputEvents)
+	}()
+
+	if videoCaptureActive && capture != nil {
+		log.Println("Starting screen feed sender goroutine.")
+		go func() {
+			feedErr := sendScreenFeed(stream, capture)
+			if feedErr != nil {
+				log.Printf("sendScreenFeed goroutine exited with error: %v", feedErr)
+			} else {
+				log.Println("sendScreenFeed goroutine exited cleanly.")
+			}
+		}()
+	} else {
+		log.Println("Video capture is not active; not starting screen feed sender.")
+	}
+
+	receiveErr := <-errChan
+	close(inputEvents) // Close inputEvents to stop handleInputEvents and related goroutines
+	log.Printf("GetFeed: receiveInputEvents goroutine finished with error: %v", receiveErr)
+
+	if receiveErr != nil {
+		// Check for specific gRPC status codes that indicate a client-side cancellation or normal stream end
+		s, ok := status.FromError(receiveErr)
+		if ok && (s.Code() == codes.Canceled || s.Code() == codes.Unavailable) {
+			log.Printf("GetFeed: Client stream was canceled or became unavailable: %v", receiveErr)
+			return nil // Considered a normal termination from client side
+		}
+		if receiveErr == io.EOF {
+			log.Println("GetFeed: Client closed the stream (EOF).")
+			return nil // Normal termination
+		}
+		log.Printf("GetFeed: Returning with error from receiveInputEvents: %v", receiveErr)
+		return receiveErr // Propagate other errors
+	}
+
+	log.Println("GetFeed: Exiting cleanly.")
+	return nil
 }
 
 func getScaleFactors(serverWidth, serverHeight int, reqMsgInit *pb.FeedRequest) (float32, float32) {
@@ -305,25 +357,25 @@ func processKeyboardInput(reqMsg *pb.FeedRequest) {
 	}
 }
 
-func receiveInputEvents(stream pb.RemoteControlService_GetFeedServer, inputEvents chan *pb.FeedRequest) {
+func receiveInputEvents(stream pb.RemoteControlService_GetFeedServer, inputEvents chan *pb.FeedRequest) error {
 	log.Println("Input event receiver goroutine started.")
 	defer log.Println("Input event receiver goroutine stopped.")
-	defer close(inputEvents)
+	// Not closing inputEvents here anymore; GetFeed will manage it.
 
 	for {
 		reqMsg, err := stream.Recv()
 		if err != nil {
 			if err == io.EOF {
 				log.Println("Client closed the stream (EOF in receiveInputEvents).")
-				return
+				return err // Propagate EOF
 			}
 			s, ok := status.FromError(err)
 			if ok && (s.Code() == codes.Canceled || s.Code() == codes.Unavailable) {
 				log.Printf("Stream canceled or unavailable in receiveInputEvents: %v", err)
-				return
+				return err // Propagate cancellation/unavailability
 			}
 			log.Printf("Error receiving input event from stream: %v", err)
-			return
+			return err // Propagate other errors
 		}
 
 		select {
