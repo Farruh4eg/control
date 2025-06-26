@@ -1,11 +1,4 @@
-# Control
-
-## Скачивание
-Скачайте ControlGRPC_Installer.exe отсюда https://github.com/Farruh4eg/control/releases/download/v0.2/ControlGRPC_Installer.exe
-
-## Установка
-
-Для установки просто запустите ControlGRPC_Installer.exe. Он автоматически разместит все необходимые файлы в нужных директориях и подготовит приложение к работе.
+# Убедитесь, что путь до ffmpeg.exe прописан в переменную Path вашей системы
 
 ## Как использовать
 
