@@ -69,6 +69,8 @@ func main() {
 
 		serverRelaxedAuthCheck := widget.NewCheck("Enable Relaxed Local Authentication (for server)", nil)
 		serverRelaxedAuthCheck.SetChecked(false)
+		serverHeadlessCheck := widget.NewCheck("Run Server Headless (No GUI)", nil)
+		serverHeadlessCheck.SetChecked(false)
 
 		formItems := []*widget.FormItem{
 			{Text: "Session Password", Widget: passwordEntryWidget, HintText: "Enter a password for this session."},
@@ -76,6 +78,7 @@ func main() {
 			{Text: "Keyboard Control", Widget: allowKeyboardControlCheck},
 			{Text: "File System Access", Widget: allowFileSystemAccessCheck},
 			{Text: "Terminal Access", Widget: allowTerminalAccessCheck},
+			{Text: "Server Mode", Widget: serverHeadlessCheck, HintText: "Run server without a graphical interface."},
 			{Text: "Advanced", Widget: serverRelaxedAuthCheck, HintText: "Allows clients on local network to connect more easily if they skip server certificate validation."},
 		}
 
@@ -93,6 +96,7 @@ func main() {
 			allowFS := allowFileSystemAccessCheck.Checked
 			allowTerminal := allowTerminalAccessCheck.Checked
 			enableServerRelaxedAuth := serverRelaxedAuthCheck.Checked
+			enableHeadless := serverHeadlessCheck.Checked
 
 			if plainPassword == "" {
 				log.Println("INFO: Host chose not to set a password.")
@@ -107,12 +111,12 @@ func main() {
 				hashedPassword = string(hashBytes)
 				log.Println("INFO: Password hashed successfully.")
 			}
-			log.Printf("INFO: Server will launch with Relaxed Local Auth: %t, Mouse: %t, Keyboard: %t, FS: %t, Terminal: %t",
-				enableServerRelaxedAuth, allowMouse, allowKeyboard, allowFS, allowTerminal)
+			log.Printf("INFO: Server will launch with Headless: %t, Relaxed Local Auth: %t, Mouse: %t, Keyboard: %t, FS: %t, Terminal: %t",
+				enableHeadless, enableServerRelaxedAuth, allowMouse, allowKeyboard, allowFS, allowTerminal)
 			launchServerProcess(mainWindow, fyneApp, relayServerEntry.Text, hashedPassword, enableServerRelaxedAuth,
-				allowMouse, allowKeyboard, allowFS, allowTerminal)
+				allowMouse, allowKeyboard, allowFS, allowTerminal, enableHeadless)
 		}, mainWindow)
-		passwordDialog.Resize(fyne.NewSize(950, 300))
+		passwordDialog.Resize(fyne.NewSize(950, 330))
 		passwordDialog.Show()
 	})
 
@@ -138,7 +142,7 @@ func main() {
 }
 
 func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, hashedPassword string, enableRelaxedAuth bool,
-	allowMouse, allowKeyboard, allowFS, allowTerminal bool) {
+	allowMouse, allowKeyboard, allowFS, allowTerminal bool, enableHeadless bool) {
 	serverPath, err := getExecutablePath(serverAppName)
 	if err != nil {
 		log.Printf("ERROR: Could not determine path for server: %v", err)
@@ -156,6 +160,9 @@ func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, 
 	}
 	if enableRelaxedAuth {
 		args = append(args, "-localRelaxedAuth=true")
+	}
+	if enableHeadless {
+		args = append(args, "-headless=true")
 	}
 	args = append(args, fmt.Sprintf("-allowMouseControl=%t", allowMouse))
 	args = append(args, fmt.Sprintf("-allowKeyboardControl=%t", allowKeyboard))
@@ -184,12 +191,15 @@ func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, 
 		dialog.ShowError(fmt.Errorf("Failed to launch server: %v", err), parentWindow)
 		return
 	}
-	log.Printf("INFO: Server '%s' launched (PID: %d). Relay: %s. Password protection: %t. Relaxed Auth: %t. Mouse: %t, Keyboard: %t, FS: %t, Terminal: %t. Waiting for Host ID...",
-		serverPath, cmd.Process.Pid, currentRelayAddr, hashedPassword != "", enableRelaxedAuth, allowMouse, allowKeyboard, allowFS, allowTerminal)
+	log.Printf("INFO: Server '%s' launched (PID: %d). Headless: %t, Relay: %s, Password protection: %t, Relaxed Auth: %t, Mouse: %t, Keyboard: %t, FS: %t, Terminal: %t. Waiting for Host ID...",
+		serverPath, cmd.Process.Pid, enableHeadless, currentRelayAddr, hashedPassword != "", enableRelaxedAuth, allowMouse, allowKeyboard, allowFS, allowTerminal)
 
-	initialDialog := dialog.NewInformation("Host Mode",
-		fmt.Sprintf("Server '%s' launched.\nRelay: %s\nPassword Protected: %t\nRelaxed Local Auth: %t\nMouse: %t, Keyboard: %t, FS: %t, Terminal: %t\nWaiting for Host ID...",
-			serverAppName, currentRelayAddr, hashedPassword != "", enableRelaxedAuth, allowMouse, allowKeyboard, allowFS, allowTerminal), parentWindow)
+	initialDialogMessage := fmt.Sprintf("Server '%s' launched.\nHeadless: %t\nRelay: %s\nPassword Protected: %t\nRelaxed Local Auth: %t\nMouse: %t, Keyboard: %t, FS: %t, Terminal: %t\nWaiting for Host ID...",
+		serverAppName, enableHeadless, currentRelayAddr, hashedPassword != "", enableRelaxedAuth, allowMouse, allowKeyboard, allowFS, allowTerminal)
+	initialDialog := dialog.NewInformation("Host Mode", initialDialogMessage, parentWindow)
+
+	// If headless, we might not want to show a blocking dialog, or a less intrusive one.
+	// For now, we'll show it, but it could be changed to a notification.
 	initialDialog.Show()
 
 	go func() {
@@ -213,6 +223,8 @@ func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, 
 					passwordMsg = "Session is password protected."
 				}
 				passwordLabel := widget.NewLabel(passwordMsg)
+				headlessMsg := fmt.Sprintf("Server Headless: %t", enableHeadless)
+				headlessLabel := widget.NewLabel(headlessMsg)
 				relaxedAuthMsg := fmt.Sprintf("Relaxed Local Auth: %t", enableRelaxedAuth)
 				relaxedAuthLabel := widget.NewLabel(relaxedAuthMsg)
 				permissionsMsg := fmt.Sprintf("Permissions: Mouse: %t, Keyboard: %t, FS: %t, Terminal: %t",
@@ -223,15 +235,19 @@ func launchServerProcess(parentWindow fyne.Window, fyneApp fyne.App, relayAddr, 
 					parentWindow.Clipboard().SetContent(hostID)
 					dialog.ShowInformation("Copied", "Host ID copied to clipboard!", parentWindow)
 				})
-				content := container.NewVBox(
+				vboxItems := []fyne.CanvasObject{
 					widget.NewLabel("Server is running and registered."),
 					idLabel,
 					passwordLabel,
+					headlessLabel,
 					relaxedAuthLabel,
 					permissionsLabel,
 					copyButton,
-				)
-				content.Resize(fyne.NewSize(600, 600))
+				}
+				content := container.NewVBox(vboxItems...)
+
+				// Resize the dialog content slightly to accommodate the new headless label
+				// content.Resize(fyne.NewSize(600, 630)) // This might not be necessary or might need adjustment
 				dialog.ShowCustom("Host Ready", "Close", content, parentWindow)
 				return
 			}

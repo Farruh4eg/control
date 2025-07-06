@@ -28,6 +28,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
+
+	"os/signal"
+	"syscall"
 )
 
 //go:embed server.crt
@@ -67,6 +70,7 @@ var (
 	hostIDFlag                = flag.String("hostID", "auto", "Unique ID for this host. 'auto' for random generation.")
 	sessionPasswordFlag       = flag.String("sessionPassword", "", "HASHED password to protect this host session when using relay (optional).")
 	localRelaxedAuthFlag      = flag.Bool("localRelaxedAuth", false, "Enable relaxed client certificate authentication for direct local connections.")
+	headlessFlag              = flag.Bool("headless", false, "Run the server without any GUI.")
 
 	fyneApp                   fyne.App
 	fyneWindow                fyne.Window
@@ -258,96 +262,109 @@ func main() {
 	pb.RegisterSessionServiceServer(grpcServer, s)
 	reflection.Register(grpcServer)
 
-	fyneApp = app.NewWithID("com.example.grpcserver.v2")
-	fyneWindow = fyneApp.NewWindow("gRPC Server - Initializing...")
+	// Only initialize Fyne components if not in headless mode
+	if !*headlessFlag {
+		fyneApp = app.NewWithID("com.example.grpcserver.v2")
+		fyneWindow = fyneApp.NewWindow("gRPC Server - Initializing...")
 
-	serverStatusLabel = widget.NewLabel(fmt.Sprintf("Direct gRPC: Listening on %s", primaryListenAddrDisplay))
-	serverStatusLabel.Alignment = fyne.TextAlignCenter
-	hostIDDisplayLabel = widget.NewLabel("Determining Host ID / Direct Addresses...")
-	hostIDDisplayLabel.Wrapping = fyne.TextWrapWord
-	hostIDDisplayLabel.Alignment = fyne.TextAlignCenter
-	passwordStatusText := "Password: None"
-	if s.sessionPasswordHash != "" {
-		passwordStatusText = "Password: Set (Protected)"
-	}
-	passwordStatusLabel = widget.NewLabel(passwordStatusText)
-	passwordStatusLabel.Alignment = fyne.TextAlignCenter
-	relayStatusLabel = widget.NewLabel("Relay: Disabled")
-	relayStatusLabel.Alignment = fyne.TextAlignCenter
+		serverStatusLabel = widget.NewLabel(fmt.Sprintf("Direct gRPC: Listening on %s", primaryListenAddrDisplay))
+		serverStatusLabel.Alignment = fyne.TextAlignCenter
+		hostIDDisplayLabel = widget.NewLabel("Determining Host ID / Direct Addresses...")
+		hostIDDisplayLabel.Wrapping = fyne.TextWrapWord
+		hostIDDisplayLabel.Alignment = fyne.TextAlignCenter
+		passwordStatusText := "Password: None"
+		if s.sessionPasswordHash != "" {
+			passwordStatusText = "Password: Set (Protected)"
+		}
+		passwordStatusLabel = widget.NewLabel(passwordStatusText)
+		passwordStatusLabel.Alignment = fyne.TextAlignCenter
+		relayStatusLabel = widget.NewLabel("Relay: Disabled")
+		relayStatusLabel.Alignment = fyne.TextAlignCenter
 
-	relaxedAuthStatusText := "Local Auth: Strict (Cert Required)"
-	if *localRelaxedAuthFlag {
-		relaxedAuthStatusText = "Local Auth: Relaxed (Cert If Given)"
-	}
-	relaxedAuthStatusLabel := widget.NewLabel(relaxedAuthStatusText)
-	relaxedAuthStatusLabel.Alignment = fyne.TextAlignCenter
+		relaxedAuthStatusText := "Local Auth: Strict (Cert Required)"
+		if *localRelaxedAuthFlag {
+			relaxedAuthStatusText = "Local Auth: Relaxed (Cert If Given)"
+		}
+		relaxedAuthStatusLabel := widget.NewLabel(relaxedAuthStatusText)
+		relaxedAuthStatusLabel.Alignment = fyne.TextAlignCenter
 
-	mousePermissionLabel = widget.NewLabel(fmt.Sprintf("Mouse Control: %t", s.allowMouseControl))
-	mousePermissionLabel.Alignment = fyne.TextAlignCenter
-	keyboardPermissionLabel = widget.NewLabel(fmt.Sprintf("Keyboard Control: %t", s.allowKeyboardControl))
-	keyboardPermissionLabel.Alignment = fyne.TextAlignCenter
-	fileSystemPermissionLabel = widget.NewLabel(fmt.Sprintf("File System Access: %t", s.allowFileSystemAccess))
-	fileSystemPermissionLabel.Alignment = fyne.TextAlignCenter
-	terminalPermissionLabel = widget.NewLabel(fmt.Sprintf("Terminal Access: %t", s.allowTerminalAccess))
-	terminalPermissionLabel.Alignment = fyne.TextAlignCenter
+		mousePermissionLabel = widget.NewLabel(fmt.Sprintf("Mouse Control: %t", s.allowMouseControl))
+		mousePermissionLabel.Alignment = fyne.TextAlignCenter
+		keyboardPermissionLabel = widget.NewLabel(fmt.Sprintf("Keyboard Control: %t", s.allowKeyboardControl))
+		keyboardPermissionLabel.Alignment = fyne.TextAlignCenter
+		fileSystemPermissionLabel = widget.NewLabel(fmt.Sprintf("File System Access: %t", s.allowFileSystemAccess))
+		fileSystemPermissionLabel.Alignment = fyne.TextAlignCenter
+		terminalPermissionLabel = widget.NewLabel(fmt.Sprintf("Terminal Access: %t", s.allowTerminalAccess))
+		terminalPermissionLabel.Alignment = fyne.TextAlignCenter
 
-	if *enableRelay {
-		hostIDDisplayLabel.SetText("Registering with Relay server...")
-		relayStatusLabel.SetText(fmt.Sprintf("Relay: Connecting to %s...", *relayServerAddr))
-	} else {
-		s.currentRelayHostID = initialHostID
-		var directConnectDisplay string
-		if len(displayableListenAddrs) == 0 {
-			directConnectDisplay = fmt.Sprintf("Connect directly (listening on %s)", s.localGrpcAddr)
-		} else if len(displayableListenAddrs) == 1 {
-			directConnectDisplay = fmt.Sprintf("Connect directly via: %s", displayableListenAddrs[0])
+		if *enableRelay {
+			hostIDDisplayLabel.SetText("Registering with Relay server...")
+			relayStatusLabel.SetText(fmt.Sprintf("Relay: Connecting to %s...", *relayServerAddr))
 		} else {
-			displayLimit := min(len(displayableListenAddrs), 3)
-			otherIPs := strings.Join(displayableListenAddrs[1:displayLimit], ", ")
-			if len(displayableListenAddrs) > displayLimit {
-				otherIPs += ", ..."
+			s.currentRelayHostID = initialHostID
+			var directConnectDisplay string
+			if len(displayableListenAddrs) == 0 {
+				directConnectDisplay = fmt.Sprintf("Connect directly (listening on %s)", s.localGrpcAddr)
+			} else if len(displayableListenAddrs) == 1 {
+				directConnectDisplay = fmt.Sprintf("Connect directly via: %s", displayableListenAddrs[0])
+			} else {
+				displayLimit := min(len(displayableListenAddrs), 3)
+				otherIPs := strings.Join(displayableListenAddrs[1:displayLimit], ", ")
+				if len(displayableListenAddrs) > displayLimit {
+					otherIPs += ", ..."
+				}
+				directConnectDisplay = fmt.Sprintf("Connect directly via: %s (or other local IPs like %s)", displayableListenAddrs[0], otherIPs)
 			}
-			directConnectDisplay = fmt.Sprintf("Connect directly via: %s (or other local IPs like %s)", displayableListenAddrs[0], otherIPs)
+			hostIDDisplayLabel.SetText(directConnectDisplay)
+			fyneWindow.SetTitle(fmt.Sprintf("gRPC Server (Direct Mode) - Port %d", *portFlag))
+			fmt.Fprintf(os.Stdout, "%s%s\n", effectiveHostIDPrefix, initialHostID)
+			log.Printf("INFO: Server in direct mode. Internal Host ID: %s. %s", initialHostID, directConnectDisplay)
 		}
-		hostIDDisplayLabel.SetText(directConnectDisplay)
-		fyneWindow.SetTitle(fmt.Sprintf("gRPC Server (Direct Mode) - Port %d", *portFlag))
+
+		quitButton := widget.NewButton("Shutdown Server", func() {
+			log.Println("INFO: Shutdown button clicked.")
+			serverStatusLabel.SetText("Server shutting down...")
+			if tryGracefulShutdown(s, shutdownTimeout) {
+			}
+			log.Println("INFO: Quitting Fyne application via button.")
+			fyneApp.Quit()
+		})
+
+		fyneWindow.SetContent(container.NewVBox(
+			hostIDDisplayLabel,
+			passwordStatusLabel,
+			serverStatusLabel,
+			relayStatusLabel,
+			relaxedAuthStatusLabel,
+			mousePermissionLabel,
+			keyboardPermissionLabel,
+			fileSystemPermissionLabel,
+			terminalPermissionLabel,
+			quitButton,
+		))
+		fyneWindow.Resize(fyne.NewSize(500, 380))
+		fyneWindow.SetOnClosed(func() {
+			log.Println("INFO: Fyne window closed by user.")
+			tryGracefulShutdown(s, shutdownTimeout)
+			log.Println("INFO: Server shutdown process initiated from OnClosed.")
+		})
+	} // End of if !*headlessFlag for Fyne UI setup
+
+	// Common setup for both headless and GUI mode
+	// Output Host ID to stdout if in direct mode (for relay mode, it's done upon registration)
+	if !*enableRelay {
 		fmt.Fprintf(os.Stdout, "%s%s\n", effectiveHostIDPrefix, initialHostID)
-		log.Printf("INFO: Server in direct mode. Internal Host ID: %s. %s", initialHostID, directConnectDisplay)
+		log.Printf("INFO: Effective Host ID (direct mode): %s. Listening on: %s", initialHostID, allListenAddrLog)
+	} else if *headlessFlag { // Relay mode AND headless
+		log.Println("INFO: Server in relay mode (headless). Waiting for relay registration to print Host ID.")
 	}
-
-	quitButton := widget.NewButton("Shutdown Server", func() {
-		log.Println("INFO: Shutdown button clicked.")
-		serverStatusLabel.SetText("Server shutting down...")
-		if tryGracefulShutdown(s, shutdownTimeout) {
-		}
-		log.Println("INFO: Quitting Fyne application via button.")
-		fyneApp.Quit()
-	})
-
-	fyneWindow.SetContent(container.NewVBox(
-		hostIDDisplayLabel,
-		passwordStatusLabel,
-		serverStatusLabel,
-		relayStatusLabel,
-		relaxedAuthStatusLabel,
-		mousePermissionLabel,
-		keyboardPermissionLabel,
-		fileSystemPermissionLabel,
-		terminalPermissionLabel,
-		quitButton,
-	))
-	fyneWindow.Resize(fyne.NewSize(500, 380))
-	fyneWindow.SetOnClosed(func() {
-		log.Println("INFO: Fyne window closed by user.")
-		tryGracefulShutdown(s, shutdownTimeout)
-		log.Println("INFO: Server shutdown process initiated from OnClosed.")
-	})
 
 	go func() {
 		log.Printf("INFO: gRPC Server starting. Primary display: %s. All found: %s", primaryListenAddrDisplay, allListenAddrLog)
 		if err := grpcServer.Serve(localGrpcListener); err != nil {
 			log.Printf("INFO: grpcServer.Serve completed/exited: %v", err)
-			if fyneApp != nil && serverStatusLabel != nil && !strings.Contains(err.Error(), "closed") && !strings.Contains(err.Error(), "server closed") {
+			// Only interact with Fyne if it's initialized (not headless)
+			if !*headlessFlag && fyneApp != nil && serverStatusLabel != nil && !strings.Contains(err.Error(), "closed") && !strings.Contains(err.Error(), "server closed") {
 				fyneApp.SendNotification(&fyne.Notification{
 					Title:   "gRPC Server Error",
 					Content: fmt.Sprintf("gRPC server issue: %v", err),
@@ -362,17 +379,33 @@ func main() {
 		go s.manageRelayRegistrationAndTunnels(*relayServerAddr, initialHostID, s.localGrpcAddr)
 	}
 
-	log.Println("INFO: Starting Fyne application UI...")
-	fyneWindow.ShowAndRun()
+	if !*headlessFlag {
+		log.Println("INFO: Starting Fyne application UI...")
+		fyneWindow.ShowAndRun()
 
-	log.Println("INFO: Fyne application has exited.")
-	log.Println("INFO: Performing final server stop...")
-	if s.grpcServer != nil {
-		s.grpcServer.Stop()
-		log.Println("INFO: Final grpcServer.Stop() called.")
+		log.Println("INFO: Fyne application has exited.")
+		log.Println("INFO: Performing final server stop...")
+		if s.grpcServer != nil {
+			s.grpcServer.Stop() // Ensure server stops if GUI is closed
+			log.Println("INFO: Final grpcServer.Stop() called after GUI exit.")
+		}
+		log.Println("INFO: Server shutdown complete after GUI exit. Exiting application.")
+		os.Exit(0)
+	} else {
+		log.Println("INFO: Running in headless mode. GUI skipped.")
+		// Keep the server running until an interrupt signal is received
+		// This is a common pattern for background services.
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+		// Block until a signal is received.
+		<-sigChan
+		log.Println("INFO: Received interrupt signal in headless mode.")
+		log.Println("INFO: Initiating graceful shutdown of gRPC server (headless)...")
+		tryGracefulShutdown(s, shutdownTimeout)
+		log.Println("INFO: Server shutdown complete (headless). Exiting application.")
+		os.Exit(0)
 	}
-	log.Println("INFO: Server shutdown complete. Exiting application.")
-	os.Exit(0)
 }
 
 func (s *server) manageRelayRegistrationAndTunnels(relayCtrlAddrFull, localInitialIDHint, localGrpcSvcAddr string) {
@@ -380,7 +413,8 @@ func (s *server) manageRelayRegistrationAndTunnels(relayCtrlAddrFull, localIniti
 	var err error
 	for {
 		log.Printf("INFO: [Relay] Attempting to connect to relay control server %s (local ID hint: '%s')...", relayCtrlAddrFull, localInitialIDHint)
-		if relayStatusLabel != nil {
+		// Only update Fyne label if not in headless mode and label exists
+		if !*headlessFlag && relayStatusLabel != nil {
 			relayStatusLabel.SetText(fmt.Sprintf("Relay: Connecting to %s...", relayCtrlAddrFull))
 			relayStatusLabel.Refresh()
 		}
@@ -388,7 +422,7 @@ func (s *server) manageRelayRegistrationAndTunnels(relayCtrlAddrFull, localIniti
 		controlConn, err = net.DialTimeout("tcp", relayCtrlAddrFull, 10*time.Second)
 		if err != nil {
 			log.Printf("WARN: [Relay] Failed to connect to relay control server %s: %v. Retrying in 10s...", relayCtrlAddrFull, err)
-			if relayStatusLabel != nil {
+			if !*headlessFlag && relayStatusLabel != nil {
 				relayStatusLabel.SetText("Relay: Connection failed. Retrying...")
 				relayStatusLabel.Refresh()
 			}
@@ -401,7 +435,7 @@ func (s *server) manageRelayRegistrationAndTunnels(relayCtrlAddrFull, localIniti
 		_, err = fmt.Fprint(controlConn, registerCmd)
 		if err != nil {
 			log.Printf("ERROR: [Relay] Failed to send REGISTER_HOST command: %v. Closing connection and retrying.", err)
-			if relayStatusLabel != nil {
+			if !*headlessFlag && relayStatusLabel != nil {
 				relayStatusLabel.SetText("Relay: Registration command failed.")
 				relayStatusLabel.Refresh()
 			}
@@ -410,7 +444,7 @@ func (s *server) manageRelayRegistrationAndTunnels(relayCtrlAddrFull, localIniti
 			continue
 		}
 		log.Printf("INFO: [Relay] Sent: %s", strings.TrimSpace(registerCmd))
-		if relayStatusLabel != nil {
+		if !*headlessFlag && relayStatusLabel != nil {
 			relayStatusLabel.SetText("Relay: Sent registration. Waiting for ID...")
 			relayStatusLabel.Refresh()
 		}
@@ -448,16 +482,19 @@ func (s *server) manageRelayRegistrationAndTunnels(relayCtrlAddrFull, localIniti
 				fmt.Fprintf(os.Stdout, "%s%s\n", effectiveHostIDPrefix, s.currentRelayHostID)
 				log.Printf("INFO: Effective Host ID (relay mode): %s", s.currentRelayHostID)
 
-				if hostIDDisplayLabel != nil {
-					hostIDDisplayLabel.SetText(fmt.Sprintf("Your Relay Host ID: %s\n(Share this with clients)", s.currentRelayHostID))
-					hostIDDisplayLabel.Refresh()
-				}
-				if fyneWindow != nil {
-					fyneWindow.SetTitle(fmt.Sprintf("gRPC Server - Host ID: %s (Relay)", s.currentRelayHostID))
-				}
-				if relayStatusLabel != nil {
-					relayStatusLabel.SetText(fmt.Sprintf("Relay: Registered as '%s'. Waiting for clients...", s.currentRelayHostID))
-					relayStatusLabel.Refresh()
+				// Update Fyne GUI only if not headless and components exist
+				if !*headlessFlag {
+					if hostIDDisplayLabel != nil {
+						hostIDDisplayLabel.SetText(fmt.Sprintf("Your Relay Host ID: %s\n(Share this with clients)", s.currentRelayHostID))
+						hostIDDisplayLabel.Refresh()
+					}
+					if fyneWindow != nil {
+						fyneWindow.SetTitle(fmt.Sprintf("gRPC Server - Host ID: %s (Relay)", s.currentRelayHostID))
+					}
+					if relayStatusLabel != nil {
+						relayStatusLabel.SetText(fmt.Sprintf("Relay: Registered as '%s'. Waiting for clients...", s.currentRelayHostID))
+						relayStatusLabel.Refresh()
+					}
 				}
 
 			case "VERIFY_PASSWORD_REQUEST":
@@ -522,7 +559,7 @@ func (s *server) manageRelayRegistrationAndTunnels(relayCtrlAddrFull, localIniti
 				relayDataAddrForHost := net.JoinHostPort(relayHostIP, relayDynamicPortStr)
 				log.Printf("INFO: [Relay] Host '%s' will connect to relay data endpoint: %s for session %s", s.currentRelayHostID, relayDataAddrForHost, sessionToken)
 
-				if relayStatusLabel != nil {
+				if !*headlessFlag && relayStatusLabel != nil {
 					relayStatusLabel.SetText(fmt.Sprintf("Relay: Client connecting (ID: %s, Session: %s)...", s.currentRelayHostID, sessionToken[:6]))
 					relayStatusLabel.Refresh()
 				}
@@ -569,10 +606,12 @@ func (s *server) handleHostSideTunnel(localGrpcServiceAddr, relayDataAddrForHost
 	log.Printf("INFO: %s Host-side: Connected to local gRPC service. Starting bi-directional proxy.", logCtx)
 
 	originalRelayStatusText := ""
-	if relayStatusLabel != nil {
-		originalRelayStatusText = relayStatusLabel.Text
-		relayStatusLabel.SetText(fmt.Sprintf("Relay: Active session (ID: %s)", registeredHostID))
-		relayStatusLabel.Refresh()
+	if !*headlessFlag { // Only interact with Fyne if not headless
+		if relayStatusLabel != nil {
+			originalRelayStatusText = relayStatusLabel.Text
+			relayStatusLabel.SetText(fmt.Sprintf("Relay: Active session (ID: %s)", registeredHostID))
+			relayStatusLabel.Refresh()
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -602,14 +641,17 @@ func (s *server) handleHostSideTunnel(localGrpcServiceAddr, relayDataAddrForHost
 	wg.Wait()
 	log.Printf("INFO: %s Host-side: Proxying finished. Tunnel closed.", logCtx)
 
-	if relayStatusLabel != nil {
-		if strings.Contains(relayStatusLabel.Text, fmt.Sprintf("Active session (ID: %s)", registeredHostID)) {
-			if originalRelayStatusText != "" && !strings.HasPrefix(originalRelayStatusText, "Relay: Active session") {
-				relayStatusLabel.SetText(originalRelayStatusText)
-			} else {
-				relayStatusLabel.SetText(fmt.Sprintf("Relay: Registered as '%s'. Waiting for clients...", registeredHostID))
+	if !*headlessFlag { // Only interact with Fyne if not headless
+		if relayStatusLabel != nil {
+			// Check if current status text is still about this active session before changing it back
+			if strings.Contains(relayStatusLabel.Text, fmt.Sprintf("Active session (ID: %s)", registeredHostID)) {
+				if originalRelayStatusText != "" && !strings.HasPrefix(originalRelayStatusText, "Relay: Active session") { // Avoid resetting to "Active session..."
+					relayStatusLabel.SetText(originalRelayStatusText)
+				} else { // Default back to waiting state for this host ID
+					relayStatusLabel.SetText(fmt.Sprintf("Relay: Registered as '%s'. Waiting for clients...", registeredHostID))
+				}
+				relayStatusLabel.Refresh()
 			}
-			relayStatusLabel.Refresh()
 		}
 	}
 }
