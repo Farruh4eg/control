@@ -629,16 +629,6 @@ func loadTLSCredentialsFromEmbed(relaxedAuthEnabled bool) (credentials.Transport
 		ServerName:   "localhost",
 	}
 
-	if relaxedAuthEnabled {
-		config.ClientAuth = tls.VerifyClientCertIfGiven
-		config.ClientCAs = clientCertPool
-		log.Println("INFO: [TLS] Server configured with ClientAuth=tls.VerifyClientCertIfGiven (Relaxed Auth Mode)")
-	} else {
-		config.ClientAuth = tls.RequireAndVerifyClientCert
-		config.ClientCAs = clientCertPool
-		log.Println("INFO: [TLS] Server configured with ClientAuth=tls.RequireAndVerifyClientCert (Strict Auth Mode)")
-	}
-
 	return credentials.NewTLS(config), nil
 }
 

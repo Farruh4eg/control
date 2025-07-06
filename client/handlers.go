@@ -135,8 +135,14 @@ func (mo *mouseOverlay) TypedKey(ev *fyne.KeyEvent) {
 		keyNameStr := string(ev.Name)
 		if keyNameStr == "" {
 			log.Printf("TypedKey: Empty ev.Name received. Physical: %s. Likely handled by TypedRune. Ignoring this TypedKey event.", ev.Physical)
+		} else if len(keyNameStr) == 1 {
+			// If keyNameStr is a single character, it's assumed to be a printable character (including Unicode)
+			// that will be handled by TypedRune. Log this and do not create a pbReq for TypedKey.
+			// This handles cases like English letters, Russian letters, numbers, and symbols.
+			// Special keys like "Space", "Return", "Tab" have multi-character names and will be processed in the 'else' block.
+			log.Printf("TypedKey: Single character key '%s' received. Physical: %s. Ignoring this TypedKey event as TypedRune will handle it.", keyNameStr, ev.Physical)
 		} else {
-			log.Printf("TypedKey: Normal Key: '%s', Physical: %s", keyNameStr, ev.Physical)
+			log.Printf("TypedKey: Special Key: '%s', Physical: %s", keyNameStr, ev.Physical)
 			pbReq = &pb.FeedRequest{
 				Message:           "keyboard_event",
 				KeyboardEventType: "keydown",
