@@ -133,43 +133,60 @@ func (mo *mouseOverlay) TypedKey(ev *fyne.KeyEvent) {
 		}
 	default:
 		keyNameStr := string(ev.Name)
-		if keyNameStr == "" {
-			log.Printf("TypedKey: Empty ev.Name received. Physical: %s. Likely handled by TypedRune. Ignoring this TypedKey event.", ev.Physical)
-		} else if len(keyNameStr) == 1 {
-			// If keyNameStr is a single character, it's assumed to be a printable character (including Unicode)
-			// that will be handled by TypedRune. Log this and do not create a pbReq for TypedKey.
-			// This handles cases like English letters, Russian letters, numbers, and symbols.
-			// Special keys like "Space", "Return", "Tab" have multi-character names and will be processed in the 'else' block.
-			log.Printf("TypedKey: Single character key '%s' received. Physical: %s. Ignoring this TypedKey event as TypedRune will handle it.", keyNameStr, ev.Physical)
-		} else {
-			log.Printf("TypedKey: Special Key: '%s', Physical: %s", keyNameStr, ev.Physical)
-			pbReq = &pb.FeedRequest{
-				Message:           "keyboard_event",
-				KeyboardEventType: "keydown",
-				KeyName:           keyNameStr,
+
+		// Check for special keys that also produce characters via TypedRune
+		switch keyNameStr {
+		case "Space", "Return", "Tab":
+			log.Printf("TypedKey: Key '%s' received. Physical: %s. Ignoring this TypedKey event as TypedRune will handle its character output.", keyNameStr, ev.Physical)
+			// Do nothing, pbReq remains nil
+		default:
+			// Existing logic for other keys
+			if keyNameStr == "" {
+				log.Printf("TypedKey: Empty ev.Name received. Physical: %s. Likely handled by TypedRune. Ignoring this TypedKey event.", ev.Physical)
+			} else if len(keyNameStr) == 1 {
+				// If keyNameStr is a single character, it's assumed to be a printable character (including Unicode)
+				// that will be handled by TypedRune. Log this and do not create a pbReq for TypedKey.
+				// This handles cases like English letters, Russian letters, numbers, and symbols.
+				log.Printf("TypedKey: Single character key '%s' received. Physical: %s. Ignoring this TypedKey event as TypedRune will handle it.", keyNameStr, ev.Physical)
+			} else {
+				// This block now handles non-character-producing special keys like "BackSpace", "ArrowLeft", "Shift", etc.
+				// (Modifier keys like Shift, Ctrl, Alt, Super are handled earlier in the TypedKey function).
+				log.Printf("TypedKey: Special Key (non-character or modifier): '%s', Physical: %s", keyNameStr, ev.Physical)
+				pbReq = &pb.FeedRequest{
+					Message:           "keyboard_event",
+					KeyboardEventType: "keydown",
+					KeyName:           keyNameStr,
+				}
 			}
 		}
 	}
 
 	if pbReq != nil {
-		pbReq.ModifierShift = mo.isShiftDown
-		pbReq.ModifierCtrl = mo.isCtrlDown
-		pbReq.ModifierAlt = mo.isAltDown
-		pbReq.ModifierSuper = mo.isSuperDown
-		pbReq.Timestamp = time.Now().UnixNano()
-
-		log.Printf("Client Sending Keyboard Event: Type='%s', KeyName='%s', KeyChar='%s', Shift[%t], Ctrl[%t], Alt[%t], Super[%t]",
-			pbReq.KeyboardEventType, pbReq.KeyName, pbReq.KeyCharStr,
-			pbReq.ModifierShift, pbReq.ModifierCtrl, pbReq.ModifierAlt, pbReq.ModifierSuper)
-
-		mo.sendBatchedMoves()
-
-		select {
-		case mo.inputEventsChan <- pbReq:
-		default:
-			log.Println("Keyboard event (TypedKey) dropped (inputEventsChan channel full)")
-		}
+	KeyboardEventType: "keydown",
+		KeyName:           keyNameStr,
 	}
+}
+}
+
+if pbReq != nil {
+pbReq.ModifierShift = mo.isShiftDown
+pbReq.ModifierCtrl = mo.isCtrlDown
+pbReq.ModifierAlt = mo.isAltDown
+pbReq.ModifierSuper = mo.isSuperDown
+pbReq.Timestamp = time.Now().UnixNano()
+
+log.Printf("Client Sending Keyboard Event: Type='%s', KeyName='%s', KeyChar='%s', Shift[%t], Ctrl[%t], Alt[%t], Super[%t]",
+pbReq.KeyboardEventType, pbReq.KeyName, pbReq.KeyCharStr,
+pbReq.ModifierShift, pbReq.ModifierCtrl, pbReq.ModifierAlt, pbReq.ModifierSuper)
+
+mo.sendBatchedMoves()
+
+select {
+case mo.inputEventsChan <- pbReq:
+default:
+log.Println("Keyboard event (TypedKey) dropped (inputEventsChan channel full)")
+}
+}
 }
 
 func (mo *mouseOverlay) TypedRune(r rune) {
